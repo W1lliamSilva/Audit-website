@@ -202,9 +202,31 @@ export default function Home() {
                               wordBreak: "break-all",
                             }}
                           >
-                            {check.details.map((d, i) => (
-                              <li key={i}>{d}</li>
-                            ))}
+                            {check.details.map((d, i) => {
+                              const [desc, location] = d.split("  ·  📍 ");
+                              return (
+                                <li key={i} style={{ marginBottom: 4 }}>
+                                  <span>{desc}</span>
+                                  {location && (
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        marginLeft: 8,
+                                        padding: "1px 8px",
+                                        borderRadius: 6,
+                                        background: "#e0e7ff",
+                                        color: "#4338ca",
+                                        fontSize: 12,
+                                        fontFamily: "ui-monospace, monospace",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      📍 {location}
+                                    </span>
+                                  )}
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </div>

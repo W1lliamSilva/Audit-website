@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import type { Element } from "domhandler";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 
@@ -51,6 +52,38 @@ function normalizeUrl(input: string): string {
 function truncateList(items: string[]): string[] {
   if (items.length <= MAX_DETAILS) return items;
   return [...items.slice(0, MAX_DETAILS), `… e mais ${items.length - MAX_DETAILS}`];
+}
+
+const LANDMARKS = ["header", "nav", "main", "footer", "aside", "form", "section", "article"];
+
+/** Seletor curto e legível de um elemento: tag#id ou tag.classe. */
+function elSelector($: cheerio.CheerioAPI, el: Element): string {
+  const tag = (el.tagName ?? el.name ?? "elemento").toLowerCase();
+  const id = $(el).attr("id");
+  if (id) return `${tag}#${id}`;
+  const cls = ($(el).attr("class") ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)[0];
+  return cls ? `${tag}.${cls}` : tag;
+}
+
+/** Descreve em que seção/landmark o elemento está (ex.: "header › nav.navbar"). */
+function locationOf($: cheerio.CheerioAPI, el: Element): string {
+  const $land = $(el).closest(LANDMARKS.join(","));
+  const self = elSelector($, el);
+  if ($land.length === 0) return self;
+  const landEl = $land[0] as Element;
+  const lt = (landEl.tagName ?? landEl.name ?? "").toLowerCase();
+  const lid = $land.attr("id");
+  const landmark = lid ? `${lt}#${lid}` : lt;
+  // Evita repetir quando o próprio elemento é o landmark.
+  return landmark === self ? self : `${landmark} › ${self}`;
+}
+
+/** Formata "descrição — 📍 localização" para exibição nos detalhes. */
+function withLocation(desc: string, location: string): string {
+  return `${desc}  ·  📍 ${location}`;
 }
 
 async function fetchWithTimeout(
@@ -207,7 +240,7 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
     const src = $el.attr("src") ?? $el.attr("data-src") ?? "(sem src)";
     if (alt === undefined || alt.trim() === "") {
       // alt="" é válido para imagens decorativas, mas sinalizamos ausência total.
-      if (alt === undefined) missingAlt.push(src);
+      if (alt === undefined) missingAlt.push(withLocation(src, locationOf($, el)));
     }
   }
   if (imgEls.length === 0) {
@@ -236,7 +269,8 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
     const title = $el.attr("title")?.trim();
     const hasImgAlt = $el.find("img[alt]").filter((_, im) => ($(im).attr("alt") ?? "").trim() !== "").length > 0;
     if (!text && !ariaLabel && !title && !hasImgAlt) {
-      emptyTextLinks.push($el.attr("href") ?? "(sem href)");
+      const href = $el.attr("href") ?? "(sem href)";
+      emptyTextLinks.push(withLocation(`href="${href}"`, locationOf($, el)));
     }
   });
   accessibility.push(
@@ -246,14 +280,17 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
   );
 
   // Botões sem rótulo
-  const emptyButtons: number = $("button").toArray().filter((el) => {
+  const emptyButtons: string[] = [];
+  $("button").each((_, el) => {
     const $el = $(el);
-    return !$el.text().trim() && !$el.attr("aria-label")?.trim() && !$el.attr("title")?.trim();
-  }).length;
+    if (!$el.text().trim() && !$el.attr("aria-label")?.trim() && !$el.attr("title")?.trim()) {
+      emptyButtons.push(withLocation("botão sem rótulo", locationOf($, el)));
+    }
+  });
   accessibility.push(
-    emptyButtons === 0
+    emptyButtons.length === 0
       ? { id: "btn-label", label: "Botões com rótulo", status: "pass", message: "Todos os botões têm rótulo acessível." }
-      : { id: "btn-label", label: "Botões com rótulo", status: "fail", message: `${emptyButtons} botão(ões) sem texto/aria-label.` }
+      : { id: "btn-label", label: "Botões com rótulo", status: "fail", message: `${emptyButtons.length} botão(ões) sem texto/aria-label.`, details: truncateList(emptyButtons) }
   );
 
   // Inputs sem label associado
@@ -276,27 +313,31 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
   const anchors = $("a").toArray();
   const badHrefs: string[] = [];
   const validLinks = new Set<string>();
+  const linkLocations = new Map<string, string>();
   let internalLinks = 0;
   let externalLinks = 0;
 
   for (const el of anchors) {
+    const loc = locationOf($, el);
+    const linkText = $(el).text().trim();
     const href = $(el).attr("href");
     if (href === undefined || href.trim() === "" || href.trim() === "#") {
-      badHrefs.push($(el).text().trim() || "(link sem texto)");
+      badHrefs.push(withLocation(`"${linkText || "(link sem texto)"}" → href="${href ?? ""}"`, loc));
       continue;
     }
     const h = href.trim();
     if (/^(javascript:|#|mailto:|tel:|data:)/i.test(h)) {
-      if (/^javascript:/i.test(h)) badHrefs.push(`${$(el).text().trim() || "link"} → ${h}`);
+      if (/^javascript:/i.test(h)) badHrefs.push(withLocation(`"${linkText || "link"}" → ${h}`, loc));
       continue;
     }
     try {
       const abs = new URL(h, base).toString();
       validLinks.add(abs);
+      if (!linkLocations.has(abs)) linkLocations.set(abs, loc);
       if (new URL(abs).host === base.host) internalLinks++;
       else externalLinks++;
     } catch {
-      badHrefs.push(`${$(el).text().trim() || "link"} → ${h}`);
+      badHrefs.push(withLocation(`"${linkText || "link"}" → ${h}`, loc));
     }
   }
 
@@ -319,7 +360,11 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
       label: "Links quebrados",
       status: "fail",
       message: `${broken.length} de ${linksToCheck.length} link(s) verificados estão quebrados.`,
-      details: truncateList(broken.map((b) => `${b.url} (${b.reason})`)),
+      details: truncateList(
+        broken.map((b) =>
+          withLocation(`${b.url} (${b.reason})`, linkLocations.get(b.url) ?? "?")
+        )
+      ),
     });
   }
 
