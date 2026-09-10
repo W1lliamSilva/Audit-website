@@ -16,6 +16,12 @@
   --nav-hover: rgba(55, 53, 47, 0.05);
   --radius-lg: 8px;
   --radius-xl: 12px;
+  /* Cores de suporte (status / badges) */
+  --support-teal-base: #0a7b77;
+  --support-teal-light: #bde6e4;
+  --support-yellow-base: #e89d01;
+  --support-red-base: #e32d14;
+  --support-orange-light: #ffdec4;
 }
 
 @theme inline {
