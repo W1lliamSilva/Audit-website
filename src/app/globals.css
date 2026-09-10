@@ -2,13 +2,20 @@
 
 :root {
   /* Tokens do design (Figma — Notion Pulse / Site Audit Tool) */
-  --background: #000000;
-  --foreground: #ffffff;
-  --bg-darker: #242320; /* sidebar / cards */
-  --bg-dark: #37352f; /* input */
+  --background: #fbfbfa; /* bg/lightest */
+  --foreground: #242320; /* text/default */
+  --bg-lightest: #fbfbfa;
+  --bg-light: #edeceb; /* sidebar */
+  --bg-lighter: #f7f7f5; /* input */
+  --bg-dark: #37352f; /* nav ativo */
+  --bg-darker: #242320; /* botão / texto default */
+  --text-default: #242320;
   --text-subtle: #78736f;
-  --border-subtle: rgba(229, 229, 229, 0.1);
-  --neutral-50: #fefdfc;
+  --stroke-light: #d8d6d3;
+  --border-subtle: rgba(36, 35, 32, 0.1);
+  --nav-hover: rgba(55, 53, 47, 0.05);
+  --radius-lg: 8px;
+  --radius-xl: 12px;
 }
 
 @theme inline {

@@ -5,22 +5,32 @@ import Image from "next/image";
 import type { AuditResult, CheckStatus } from "@/lib/audit";
 
 const STATUS_META: Record<CheckStatus, { icon: string; color: string; bg: string }> = {
-  pass: { icon: "✓", color: "#4ade80", bg: "rgba(74, 222, 128, 0.15)" },
-  warn: { icon: "!", color: "#fbbf24", bg: "rgba(251, 191, 36, 0.15)" },
-  fail: { icon: "✕", color: "#f87171", bg: "rgba(248, 113, 113, 0.15)" },
+  pass: { icon: "✓", color: "#16a34a", bg: "rgba(22, 163, 74, 0.12)" },
+  warn: { icon: "!", color: "#b45309", bg: "rgba(217, 119, 6, 0.12)" },
+  fail: { icon: "✕", color: "#dc2626", bg: "rgba(220, 38, 38, 0.12)" },
 };
 
 function scoreColor(score: number): string {
-  if (score >= 80) return "#4ade80";
-  if (score >= 50) return "#fbbf24";
-  return "#f87171";
+  if (score >= 80) return "#16a34a";
+  if (score >= 50) return "#d97706";
+  return "#dc2626";
 }
+
+// Itens de navegação do dashboard (telas serão implementadas a seguir).
+const NAV_ITEMS: { label: string; sub?: string }[] = [
+  { label: "Visão geral" },
+  { label: "Links quebrados" },
+  { label: "Botões sem ação" },
+  { label: "Imagens e alt text", sub: "a parte de otimização" },
+  { label: "SEO", sub: "meta tags, headings, títulos ausentes" },
+];
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AuditResult | null>(null);
+  const [active, setActive] = useState("Visão geral");
 
   async function runAudit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,27 +63,28 @@ export default function Home() {
         gap: 10,
         padding: 8,
         minHeight: "100vh",
-        background: "#000",
+        background: "var(--bg-lightest)",
         boxSizing: "border-box",
       }}
     >
-      {/* Sidebar (dashboard — conteúdo a definir) */}
+      {/* Sidebar */}
       <aside
         style={{
-          width: 312,
+          width: 271,
           flexShrink: 0,
-          background: "var(--bg-darker)",
-          borderRadius: 8,
-          padding: 24,
+          background: "var(--bg-light)",
+          borderRadius: "var(--radius-lg)",
+          padding: 12,
           display: "flex",
           flexDirection: "column",
+          gap: 24,
           alignItems: "flex-start",
         }}
       >
         <div
           style={{
             width: "100%",
-            paddingBottom: 16,
+            paddingBottom: 12,
             borderBottom: "1px solid var(--border-subtle)",
           }}
         >
@@ -86,6 +97,52 @@ export default function Home() {
             priority
           />
         </div>
+
+        <nav style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+          {NAV_ITEMS.map((item) => {
+            const isActive = active === item.label;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => setActive(item.label)}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 16,
+                  borderRadius: "var(--radius-xl)",
+                  background: isActive ? "var(--bg-dark)" : "var(--nav-hover)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 14,
+                    lineHeight: "22px",
+                    color: isActive ? "#fff" : "var(--text-default)",
+                  }}
+                >
+                  {item.label}
+                </span>
+                {item.sub && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      lineHeight: "16px",
+                      color: isActive ? "rgba(255,255,255,0.6)" : "var(--text-subtle)",
+                    }}
+                  >
+                    {item.sub}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </aside>
 
       {/* Área principal */}
@@ -128,7 +185,7 @@ export default function Home() {
               fontWeight: 500,
               fontSize: 28,
               lineHeight: "31px",
-              color: "#fff",
+              color: "var(--text-default)",
               margin: 0,
               textAlign: "center",
             }}
@@ -168,9 +225,9 @@ export default function Home() {
               style={{
                 flex: 1,
                 minWidth: 0,
-                background: "var(--bg-dark)",
-                color: "#fff",
-                border: "none",
+                background: "var(--bg-lighter)",
+                color: "var(--text-default)",
+                border: "1px solid var(--stroke-light)",
                 borderRadius: 4,
                 padding: "8px 12px",
                 fontSize: 14,
@@ -182,8 +239,8 @@ export default function Home() {
               type="submit"
               disabled={loading}
               style={{
-                background: loading ? "#c9c7c2" : "#fff",
-                color: "#000",
+                background: loading ? "#4a4844" : "var(--bg-darker)",
+                color: "#fff",
                 border: "none",
                 borderRadius: 4,
                 padding: "8px 20px",
@@ -203,8 +260,8 @@ export default function Home() {
                 width: "100%",
                 maxWidth: 400,
                 padding: 12,
-                background: "rgba(248, 113, 113, 0.12)",
-                color: "#f87171",
+                background: "rgba(220, 38, 38, 0.1)",
+                color: "#dc2626",
                 borderRadius: 4,
                 fontSize: 14,
                 textAlign: "center",
@@ -231,9 +288,9 @@ function Results({ result }: { result: AuditResult }) {
           alignItems: "center",
           gap: 24,
           padding: 24,
-          background: "var(--bg-darker)",
+          background: "#fff",
           border: "1px solid var(--border-subtle)",
-          borderRadius: 8,
+          borderRadius: "var(--radius-lg)",
           marginBottom: 16,
         }}
       >
@@ -256,15 +313,15 @@ function Results({ result }: { result: AuditResult }) {
           <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>/ 100</span>
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, color: "#fff", wordBreak: "break-all" }}>
+          <div style={{ fontWeight: 600, color: "var(--text-default)", wordBreak: "break-all" }}>
             {result.finalUrl}
           </div>
           <div style={{ fontSize: 14, margin: "6px 0" }}>
-            <span style={{ color: "#4ade80" }}>✓ {result.totals.pass} ok</span>
+            <span style={{ color: "#16a34a" }}>✓ {result.totals.pass} ok</span>
             {"  ·  "}
-            <span style={{ color: "#fbbf24" }}>! {result.totals.warn} avisos</span>
+            <span style={{ color: "#b45309" }}>! {result.totals.warn} avisos</span>
             {"  ·  "}
-            <span style={{ color: "#f87171" }}>✕ {result.totals.fail} falhas</span>
+            <span style={{ color: "#dc2626" }}>✕ {result.totals.fail} falhas</span>
           </div>
           <div style={{ color: "var(--text-subtle)", fontSize: 13 }}>
             {result.stats.images} imagens · {result.stats.links} links (
@@ -276,7 +333,7 @@ function Results({ result }: { result: AuditResult }) {
 
       {result.categories.map((cat) => (
         <div key={cat.id} style={{ marginBottom: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 10 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-default)", marginBottom: 10 }}>
             {cat.label}
           </h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -289,9 +346,9 @@ function Results({ result }: { result: AuditResult }) {
                     display: "flex",
                     gap: 12,
                     padding: 14,
-                    background: "var(--bg-darker)",
+                    background: "#fff",
                     border: "1px solid var(--border-subtle)",
-                    borderRadius: 8,
+                    borderRadius: "var(--radius-lg)",
                   }}
                 >
                   <span
@@ -312,8 +369,8 @@ function Results({ result }: { result: AuditResult }) {
                     {meta.icon}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, color: "#fff" }}>{check.label}</div>
-                    <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 14 }}>
+                    <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
+                    <div style={{ color: "rgba(36,35,32,0.7)", fontSize: 14 }}>
                       {check.message}
                     </div>
                     {check.details && check.details.length > 0 && (
@@ -338,8 +395,8 @@ function Results({ result }: { result: AuditResult }) {
                                     marginLeft: 8,
                                     padding: "1px 8px",
                                     borderRadius: 6,
-                                    background: "rgba(129, 140, 248, 0.18)",
-                                    color: "#c7d2fe",
+                                    background: "#e0e7ff",
+                                    color: "#4338ca",
                                     fontSize: 12,
                                     fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
                                     whiteSpace: "nowrap",
