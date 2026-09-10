@@ -2,8 +2,16 @@
 
 import { useCallback, useState } from "react";
 import Image from "next/image";
-import type { AuditResult, Category, CheckStatus } from "@/lib/audit";
+import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy } from "@/lib/performance";
+
+function issueKey(it: LinkIssue): string {
+  return `${it.kind}|${it.selector}|${it.targetUrl ?? it.href ?? ""}`;
+}
+
+function landmarkOf(location: string): string {
+  return location.split(" › ")[0] || location;
+}
 
 const STATUS_META: Record<CheckStatus, { icon: string; color: string; bg: string }> = {
   pass: { icon: "✓", color: "#16a34a", bg: "rgba(22, 163, 74, 0.12)" },
@@ -39,6 +47,7 @@ export default function Home() {
   const [result, setResult] = useState<AuditResult | null>(null);
   const [active, setActive] = useState("Visão geral");
 
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [strategy, setStrategy] = useState<Strategy>("desktop");
   const [perf, setPerf] = useState<Record<Strategy, PerfResult | null>>({
     desktop: null,
@@ -86,6 +95,7 @@ export default function Home() {
     setError(null);
     setResult(null);
     setPerf({ desktop: null, mobile: null });
+    setDismissed(new Set());
     setActive("Visão geral");
     try {
       const res = await fetch("/api/audit", {
@@ -270,11 +280,21 @@ export default function Home() {
                   strategy={strategy}
                   perf={perf}
                   perfLoading={perfLoading}
+                  dismissed={dismissed}
+                  onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
                   onStrategy={switchStrategy}
                   onOpenView={(v) => {
                     const item = NAV_ITEMS.find((n) => n.view === v);
                     if (item) setActive(item.label);
                   }}
+                />
+              ) : activeItem.view === "links" ? (
+                <LinkIssuesView
+                  title="Links quebrados"
+                  issues={result.linkIssues}
+                  auditedUrl={auditedUrl}
+                  dismissed={dismissed}
+                  onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
                 />
               ) : (
                 <CategoryView
@@ -487,6 +507,8 @@ function Overview({
   strategy,
   perf,
   perfLoading,
+  dismissed,
+  onDismiss,
   onStrategy,
   onOpenView,
 }: {
@@ -495,12 +517,13 @@ function Overview({
   strategy: Strategy;
   perf: Record<Strategy, PerfResult | null>;
   perfLoading: Record<Strategy, boolean>;
+  dismissed: Set<string>;
+  onDismiss: (k: string) => void;
   onStrategy: (s: Strategy) => void;
   onOpenView: (v: string) => void;
 }) {
   const current = perf[strategy];
-  const brokenCheck = result.categories.find((c) => c.id === "links")?.checks.find((c) => c.id === "broken");
-  const brokenDetails = brokenCheck?.details ?? [];
+  const activeIssues = result.linkIssues.filter((it) => !dismissed.has(issueKey(it)));
   const imgCheck = result.categories.find((c) => c.id === "images")?.checks.find((c) => c.id === "img-alt");
   const imgDetails = imgCheck?.status === "fail" ? imgCheck.details ?? [] : [];
 
@@ -552,32 +575,14 @@ function Overview({
 
       <Divider />
 
-      {/* Links quebrados (prévia) */}
-      <Section title="Links quebrados" onSeeAll={() => onOpenView("links")}>
-        {brokenDetails.length === 0 || brokenCheck?.status === "pass" ? (
-          <Empty text="Nenhum link quebrado encontrado 🎉" />
+      {/* Links quebrados / sem destino (prévia) */}
+      <Section title="Links quebrados" onSeeAll={activeIssues.length > 3 ? () => onOpenView("links") : undefined}>
+        {activeIssues.length === 0 ? (
+          <Empty text="Nenhum link com problema encontrado 🎉" />
         ) : (
-          brokenDetails.map((d, i) => {
-            const { desc, location } = splitDetail(d);
-            const urlMatch = desc.match(/^(\S+)\s*(\(.*\))?/);
-            const link = urlMatch?.[1] ?? desc;
-            return (
-              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
-                  <span style={{ fontSize: 14, color: "var(--text-subtle)", wordBreak: "break-all" }}>{desc}</span>
-                  {location && <Pill text={location} />}
-                </div>
-                <a
-                  href={link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ background: "var(--support-teal-base)", color: "#fff", fontSize: 14, textDecoration: "none", padding: "8px 18px", borderRadius: 100, whiteSpace: "nowrap" }}
-                >
-                  Abrir link
-                </a>
-              </div>
-            );
-          })
+          activeIssues.slice(0, 3).map((it) => (
+            <LinkIssueCard key={issueKey(it)} issue={it} auditedUrl={auditedUrl} onDismiss={() => onDismiss(issueKey(it))} />
+          ))
         )}
       </Section>
 
@@ -730,6 +735,186 @@ function CategoryView({ category, title }: { category?: Category; title: string 
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Card de problema de link (estilo LinkAudit) ---------- */
+function LinkIssueCard({
+  issue,
+  auditedUrl,
+  onDismiss,
+}: {
+  issue: LinkIssue;
+  auditedUrl: string;
+  onDismiss: () => void;
+}) {
+  const [showShot, setShowShot] = useState(false);
+  const [shotError, setShotError] = useState(false);
+
+  const dotColor = issue.kind === "broken" ? "#e32d14" : "#e89d01";
+  const shotUrl = `/api/screenshot?url=${encodeURIComponent(auditedUrl)}&selector=${encodeURIComponent(issue.selector)}`;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        padding: 16,
+        background: "#fff",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 12,
+      }}
+    >
+      {/* Linha 1: rótulo + texto + pill */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--text-subtle)" }}>
+          {issue.label}
+        </span>
+        <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-default)" }}>{issue.text}</span>
+        <span
+          style={{
+            background: "var(--bg-light)",
+            color: "var(--text-subtle)",
+            fontSize: 13,
+            padding: "2px 10px",
+            borderRadius: 100,
+          }}
+        >
+          {landmarkOf(issue.location)} · nesta página
+        </span>
+      </div>
+
+      {/* Linha 2: descrição */}
+      <p style={{ margin: 0, fontSize: 14, color: "var(--text-subtle)" }}>{issue.description}</p>
+
+      {/* Linha 3: seletor + ações */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <code
+          style={{
+            flex: 1,
+            minWidth: 180,
+            background: "var(--bg-lighter)",
+            border: "1px solid var(--stroke-light)",
+            borderRadius: 8,
+            padding: "6px 10px",
+            fontSize: 12,
+            fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
+            color: "var(--text-default)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={issue.selector}
+        >
+          {issue.selector || "—"}
+        </code>
+        <button
+          type="button"
+          onClick={() => {
+            setShotError(false);
+            setShowShot((v) => !v);
+          }}
+          style={{
+            background: "var(--bg-darker)",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "6px 14px",
+            fontSize: 13,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {showShot ? "Ocultar print" : "Ver na página"}
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          style={{
+            background: "transparent",
+            color: "var(--text-subtle)",
+            border: "1px solid var(--stroke-light)",
+            borderRadius: 8,
+            padding: "6px 14px",
+            fontSize: 13,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Descartar
+        </button>
+      </div>
+
+      {/* Print da página com o elemento destacado */}
+      {showShot && (
+        <div
+          style={{
+            marginTop: 4,
+            borderRadius: 8,
+            overflow: "hidden",
+            border: "1px solid var(--border-subtle)",
+            background: "var(--bg-light)",
+            minHeight: 80,
+          }}
+        >
+          {shotError ? (
+            <p style={{ margin: 0, padding: 16, fontSize: 13, color: "#dc2626" }}>
+              Não foi possível capturar o print desta página.
+            </p>
+          ) : (
+            <>
+              <p style={{ margin: 0, padding: "8px 12px", fontSize: 12, color: "var(--text-subtle)" }}>
+                Carregando print…
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={shotUrl}
+                alt="Print da página com o elemento destacado"
+                style={{ display: "block", width: "100%", height: "auto" }}
+                onError={() => setShotError(true)}
+                onLoad={(e) => {
+                  const prev = (e.currentTarget.previousElementSibling as HTMLElement) ?? null;
+                  if (prev) prev.style.display = "none";
+                }}
+              />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Tela de Links quebrados (lista de cards) ---------- */
+function LinkIssuesView({
+  title,
+  issues,
+  auditedUrl,
+  dismissed,
+  onDismiss,
+}: {
+  title: string;
+  issues: LinkIssue[];
+  auditedUrl: string;
+  dismissed: Set<string>;
+  onDismiss: (k: string) => void;
+}) {
+  const active = issues.filter((it) => !dismissed.has(issueKey(it)));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
+        {title}
+      </h1>
+      {active.length === 0 ? (
+        <Empty text="Nenhum link com problema encontrado 🎉" />
+      ) : (
+        active.map((it) => (
+          <LinkIssueCard key={issueKey(it)} issue={it} auditedUrl={auditedUrl} onDismiss={() => onDismiss(issueKey(it))} />
+        ))
+      )}
     </div>
   );
 }

@@ -20,6 +20,28 @@ export interface Category {
   checks: CheckResult[];
 }
 
+export type LinkIssueKind = "no-link" | "broken" | "generic-text" | "no-text";
+
+export interface LinkIssue {
+  kind: LinkIssueKind;
+  /** Rótulo curto do tipo (ex.: "Botão/link sem destino"). */
+  label: string;
+  /** Texto visível do elemento. */
+  text: string;
+  /** href original, quando houver. */
+  href?: string;
+  /** URL absoluta de destino (links quebrados). */
+  targetUrl?: string;
+  /** Motivo (links quebrados): "HTTP 404", "timeout"… */
+  reason?: string;
+  /** Seletor CSS para localizar/destacar o elemento na página. */
+  selector: string;
+  /** Landmark/seção legível (ex.: "footer › a.btn"). */
+  location: string;
+  /** Descrição do problema. */
+  description: string;
+}
+
 export interface AuditResult {
   url: string;
   finalUrl: string;
@@ -27,6 +49,7 @@ export interface AuditResult {
   score: number;
   totals: { pass: number; warn: number; fail: number };
   categories: Category[];
+  linkIssues: LinkIssue[];
   stats: {
     htmlBytes: number;
     images: number;
@@ -66,6 +89,48 @@ function elSelector($: cheerio.CheerioAPI, el: Element): string {
     .split(/\s+/)
     .filter(Boolean)[0];
   return cls ? `${tag}.${cls}` : tag;
+}
+
+function cssEscape(s: string): string {
+  return s.replace(/["\\]/g, "\\$&");
+}
+
+/** Caminho CSS reproduzível no DOM real (para querySelector no screenshot). */
+function cssPath($: cheerio.CheerioAPI, el: Element): string {
+  const parts: string[] = [];
+  let cur: Element | null = el;
+  let depth = 0;
+  while (cur && (cur.tagName ?? cur.name) && depth < 8) {
+    const tag = (cur.tagName ?? cur.name).toLowerCase();
+    if (tag === "html" || tag === "body") {
+      parts.unshift(tag);
+      break;
+    }
+    const id = $(cur).attr("id");
+    if (id) {
+      parts.unshift(`#${cssEscape(id)}`);
+      break;
+    }
+    // data-framer-name (comum em sites Framer) dá um seletor estável e legível.
+    const framer = $(cur).attr("data-framer-name");
+    if (framer) {
+      parts.unshift(`${tag}[data-framer-name="${cssEscape(framer)}"]`);
+    } else {
+      const parent: Element | null = (cur.parent as Element) ?? null;
+      let nth = 1;
+      if (parent && Array.isArray(parent.children)) {
+        const sameTag = parent.children.filter(
+          (c): c is Element => (c as Element).tagName?.toLowerCase() === tag
+        );
+        const idx = sameTag.indexOf(cur);
+        nth = idx >= 0 ? idx + 1 : 1;
+      }
+      parts.unshift(`${tag}:nth-of-type(${nth})`);
+    }
+    cur = (cur.parent as Element) ?? null;
+    depth++;
+  }
+  return parts.join(" > ");
 }
 
 /** Descreve em que seção/landmark o elemento está (ex.: "header › nav.navbar"). */
@@ -314,30 +379,60 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
   const badHrefs: string[] = [];
   const validLinks = new Set<string>();
   const linkLocations = new Map<string, string>();
+  const linkElements = new Map<string, { selector: string; text: string; location: string }>();
+  const linkIssues: LinkIssue[] = [];
   let internalLinks = 0;
   let externalLinks = 0;
 
   for (const el of anchors) {
     const loc = locationOf($, el);
+    const selector = cssPath($, el);
     const linkText = $(el).text().trim();
     const href = $(el).attr("href");
-    if (href === undefined || href.trim() === "" || href.trim() === "#") {
-      badHrefs.push(withLocation(`"${linkText || "(link sem texto)"}" → href="${href ?? ""}"`, loc));
+
+    // Link sem destino (sem href, vazio, "#", ou javascript:)
+    const noDestReason =
+      href === undefined
+        ? "no atributo href"
+        : href.trim() === "" || href.trim() === "#"
+          ? `href="${href.trim()}"`
+          : /^javascript:/i.test(href.trim())
+            ? href.trim()
+            : null;
+
+    if (href === undefined || href.trim() === "" || href.trim() === "#" || /^javascript:/i.test(href.trim())) {
+      badHrefs.push(withLocation(`"${linkText || "(link sem texto)"}" → ${noDestReason}`, loc));
+      linkIssues.push({
+        kind: "no-link",
+        label: linkText ? "Link sem destino" : "Link sem destino e sem texto",
+        text: linkText || "(sem texto)",
+        href: href ?? "",
+        selector,
+        location: loc,
+        description: `Link sem destino (${noDestReason}). Clicar não leva a lugar nenhum.`,
+      });
       continue;
     }
     const h = href.trim();
-    if (/^(javascript:|#|mailto:|tel:|data:)/i.test(h)) {
-      if (/^javascript:/i.test(h)) badHrefs.push(withLocation(`"${linkText || "link"}" → ${h}`, loc));
-      continue;
-    }
+    if (/^(mailto:|tel:|data:)/i.test(h)) continue;
     try {
       const abs = new URL(h, base).toString();
       validLinks.add(abs);
       if (!linkLocations.has(abs)) linkLocations.set(abs, loc);
+      if (!linkElements.has(abs)) linkElements.set(abs, { selector, text: linkText, location: loc });
       if (new URL(abs).host === base.host) internalLinks++;
       else externalLinks++;
     } catch {
       badHrefs.push(withLocation(`"${linkText || "link"}" → ${h}`, loc));
+      linkIssues.push({
+        kind: "no-link",
+        label: "Link com destino inválido",
+        text: linkText || "(sem texto)",
+        href: h,
+        selector,
+        location: loc,
+        description: `O href "${h}" não é uma URL válida.`,
+      });
     }
   }
 
@@ -367,6 +462,19 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
       ),
     });
   }
+  for (const b of broken) {
+    const meta = linkElements.get(b.url);
+    linkIssues.push({
+      kind: "broken",
+      label: "Link quebrado",
+      text: meta?.text || "(sem texto)",
+      targetUrl: b.url,
+      reason: b.reason,
+      selector: meta?.selector ?? "",
+      location: meta?.location ?? linkLocations.get(b.url) ?? "?",
+      description: `O link aponta para ${b.url} e retorna ${b.reason}.`,
+    });
+  }
 
   // ---------- Montagem ----------
   const categories: Category[] = [
@@ -394,6 +502,7 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
     score,
     totals,
     categories,
+    linkIssues,
     stats: {
       htmlBytes: Buffer.byteLength(html, "utf8"),
       images: imgEls.length,
