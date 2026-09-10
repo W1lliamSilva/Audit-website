@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import Image from "next/image";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy } from "@/lib/performance";
+import type { ImageIssue, ImagesResult } from "@/lib/images";
 
 function issueKey(it: LinkIssue): string {
   return `${it.kind}|${it.selector}|${it.targetUrl ?? it.href ?? ""}`;
@@ -48,6 +49,8 @@ export default function Home() {
   const [active, setActive] = useState("Visão geral");
 
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [images, setImages] = useState<ImagesResult | null>(null);
+  const [imagesLoading, setImagesLoading] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>("desktop");
   const [perf, setPerf] = useState<Record<Strategy, PerfResult | null>>({
     desktop: null,
@@ -88,6 +91,23 @@ export default function Home() {
     []
   );
 
+  const loadImages = useCallback(async (u: string) => {
+    setImagesLoading(true);
+    try {
+      const res = await fetch("/api/images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: u }),
+      });
+      const data: ImagesResult = await res.json();
+      setImages(data);
+    } catch {
+      setImages({ total: 0, withoutAlt: [], error: "Falha ao analisar as imagens." });
+    } finally {
+      setImagesLoading(false);
+    }
+  }, []);
+
   async function runAudit(e: React.FormEvent) {
     e.preventDefault();
     if (!url.trim()) return;
@@ -95,6 +115,7 @@ export default function Home() {
     setError(null);
     setResult(null);
     setPerf({ desktop: null, mobile: null });
+    setImages(null);
     setDismissed(new Set());
     setActive("Visão geral");
     try {
@@ -107,8 +128,9 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error ?? "Falha na auditoria.");
       setResult(data as AuditResult);
       setAuditedUrl((data as AuditResult).finalUrl);
-      // Dispara a medição de desempenho (desktop primeiro).
+      // Dispara medição de desempenho e análise de imagens (DOM renderizado).
       loadPerf((data as AuditResult).finalUrl, "desktop");
+      loadImages((data as AuditResult).finalUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");
     } finally {
@@ -280,6 +302,8 @@ export default function Home() {
                   strategy={strategy}
                   perf={perf}
                   perfLoading={perfLoading}
+                  images={images}
+                  imagesLoading={imagesLoading}
                   dismissed={dismissed}
                   onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
                   onStrategy={switchStrategy}
@@ -296,6 +320,8 @@ export default function Home() {
                   dismissed={dismissed}
                   onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
                 />
+              ) : activeItem.view === "images" ? (
+                <ImagesView images={images} loading={imagesLoading} />
               ) : (
                 <CategoryView
                   category={result.categories.find((c) => c.id === activeItem.view)}
@@ -507,6 +533,8 @@ function Overview({
   strategy,
   perf,
   perfLoading,
+  images,
+  imagesLoading,
   dismissed,
   onDismiss,
   onStrategy,
@@ -517,6 +545,8 @@ function Overview({
   strategy: Strategy;
   perf: Record<Strategy, PerfResult | null>;
   perfLoading: Record<Strategy, boolean>;
+  images: ImagesResult | null;
+  imagesLoading: boolean;
   dismissed: Set<string>;
   onDismiss: (k: string) => void;
   onStrategy: (s: Strategy) => void;
@@ -524,13 +554,7 @@ function Overview({
 }) {
   const current = perf[strategy];
   const activeIssues = result.linkIssues.filter((it) => !dismissed.has(issueKey(it)));
-  const imgCheck = result.categories.find((c) => c.id === "images")?.checks.find((c) => c.id === "img-alt");
-  const imgDetails = imgCheck?.status === "fail" ? imgCheck.details ?? [] : [];
-
-  let base: URL | null = null;
-  try {
-    base = new URL(auditedUrl);
-  } catch {}
+  const imgsWithoutAlt = images?.withoutAlt ?? [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -589,44 +613,15 @@ function Overview({
       <Divider />
 
       {/* Imagens e alt text (prévia) */}
-      <Section title="Imagens e alt text" onSeeAll={() => onOpenView("images")}>
-        {imgDetails.length === 0 ? (
-          <Empty text="Todas as imagens têm alt text 🎉" />
+      <Section title="Imagens e alt text" onSeeAll={imgsWithoutAlt.length > 2 ? () => onOpenView("images") : undefined}>
+        {imagesLoading ? (
+          <Empty text="Analisando as imagens da página…" />
+        ) : images?.error ? (
+          <Empty text={images.error} />
+        ) : imgsWithoutAlt.length === 0 ? (
+          <Empty text={images ? "Todas as imagens têm alt text 🎉" : "—"} />
         ) : (
-          imgDetails.map((d, i) => {
-            const { desc, location } = splitDetail(d);
-            let src = desc;
-            try {
-              if (base) src = new URL(desc, base).toString();
-            } catch {}
-            const name = desc.split("/").pop() || desc;
-            return (
-              <div key={i} style={{ display: "flex", gap: 16, alignItems: "stretch" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={src}
-                  alt=""
-                  style={{ width: 160, height: 120, objectFit: "cover", borderRadius: 12, background: "var(--bg-light)", flexShrink: 0 }}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-                  }}
-                />
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 10, padding: "4px 0" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <span style={{ fontSize: 16, fontWeight: 500, color: "var(--text-default)", wordBreak: "break-all" }}>{name}</span>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 14, color: "var(--text-subtle)" }}>{base?.host ?? auditedUrl}</span>
-                      {location && <Pill text={location} />}
-                    </div>
-                  </div>
-                  <div style={{ background: "var(--bg-light)", borderRadius: 12, padding: "8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ fontSize: 14, color: "var(--text-subtle)" }}>Sem alt text — geração por IA em breve</span>
-                    <Image src="/figma/copy.svg" alt="Copiar" width={20} height={20} style={{ width: 20, height: 20, opacity: 0.5 }} />
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          imgsWithoutAlt.slice(0, 2).map((im, i) => <ImageCard key={i} image={im} host={new URL(auditedUrl).host} />)
         )}
       </Section>
     </div>
@@ -914,6 +909,120 @@ function LinkIssuesView({
         active.map((it) => (
           <LinkIssueCard key={issueKey(it)} issue={it} auditedUrl={auditedUrl} onDismiss={() => onDismiss(issueKey(it))} />
         ))
+      )}
+    </div>
+  );
+}
+
+/* ---------- Card de imagem sem alt (com geração de alt text) ---------- */
+function ImageCard({ image, host }: { image: ImageIssue; host: string }) {
+  const [alt, setAlt] = useState<string | null>(null);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const name = (image.src.split("?")[0].split("/").pop() || image.src).slice(0, 60);
+  const dims = image.width && image.height ? `${image.width}×${image.height}px` : null;
+
+  async function generate() {
+    setGenLoading(true);
+    setGenError(null);
+    try {
+      const res = await fetch("/api/alt-text", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageUrl: image.src }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Falha ao gerar.");
+      setAlt(data.altText ?? "");
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Falha ao gerar alt text.");
+    } finally {
+      setGenLoading(false);
+    }
+  }
+
+  async function copy() {
+    if (!alt) return;
+    try {
+      await navigator.clipboard.writeText(alt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 16, alignItems: "stretch", padding: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={image.src}
+        alt=""
+        style={{ width: 180, height: 135, objectFit: "cover", borderRadius: 12, background: "var(--bg-light)", flexShrink: 0 }}
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.opacity = "0.15";
+        }}
+      />
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 10, padding: "4px 0" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ fontSize: 16, fontWeight: 500, color: "var(--text-default)", wordBreak: "break-all" }}>{name}</span>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 14, color: "var(--text-subtle)" }}>{host}</span>
+            <Pill text={image.location} />
+            {dims && <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>· {dims}</span>}
+          </div>
+        </div>
+
+        {alt !== null ? (
+          <div style={{ background: "var(--bg-light)", borderRadius: 12, padding: "8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span style={{ fontSize: 14, color: "var(--text-default)" }}>{alt || "(vazio)"}</span>
+            <button type="button" onClick={copy} title="Copiar" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, color: "var(--text-subtle)", fontSize: 12 }}>
+              {copied ? "Copiado!" : <Image src="/figma/copy.svg" alt="Copiar" width={20} height={20} style={{ width: 20, height: 20 }} />}
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: "#dc2626" }}>Sem alt text</span>
+            <button
+              type="button"
+              onClick={generate}
+              disabled={genLoading}
+              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: genLoading ? "default" : "pointer" }}
+            >
+              {genLoading ? "Gerando…" : "✦ Gerar alt text"}
+            </button>
+            {genError && <span style={{ fontSize: 12, color: "#dc2626" }}>{genError}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Tela de Imagens e alt text ---------- */
+function ImagesView({ images, loading }: { images: ImagesResult | null; loading: boolean }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
+        Imagens e alt text
+      </h1>
+      {loading ? (
+        <Empty text="Analisando as imagens da página (renderizando com navegador)…" />
+      ) : images?.error ? (
+        <Empty text={images.error} />
+      ) : !images ? (
+        <Empty text="—" />
+      ) : images.withoutAlt.length === 0 ? (
+        <Empty text={`Todas as ${images.total} imagens têm alt text 🎉`} />
+      ) : (
+        <>
+          <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: 0 }}>
+            {images.withoutAlt.length} de {images.total} imagens sem alt text.
+          </p>
+          {images.withoutAlt.map((im, i) => (
+            <ImageCard key={i} image={im} host={(() => { try { return new URL(im.src).host; } catch { return ""; } })()} />
+          ))}
+        </>
       )}
     </div>
   );
