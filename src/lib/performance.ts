@@ -45,6 +45,8 @@ export async function getPerformance(
   api.searchParams.append("category", "performance");
   const key = process.env.PAGESPEED_API_KEY;
   if (key) api.searchParams.set("key", key);
+  // Diagnóstico temporário
+  console.log(`[perf] keyPresent=${!!key} keyLen=${key ? key.length : 0} strategy=${strategy} url=${url}`);
 
   // O PageSpeed roda o Lighthouse ao vivo na 1ª análise de uma URL (lento);
   // a 2ª chamada normalmente pega o resultado em cache do Google e é rápida.
@@ -60,6 +62,7 @@ export async function getPerformance(
       const res = await fetch(api.toString(), { signal: controller.signal });
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
+        console.error(`[perf] google status=${res.status} keyPresent=${!!key} body=${detail.slice(0, 300)}`);
         // Em 429 NÃO reintentamos (piora o rate limit por minuto) — retornamos direto.
         return {
           strategy,
