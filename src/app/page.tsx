@@ -171,10 +171,7 @@ export default function Home() {
           flexDirection: "column",
           gap: 24,
           alignItems: "flex-start",
-          position: "sticky",
-          top: 8,
-          alignSelf: "flex-start",
-          maxHeight: "calc(100vh - 16px)",
+          alignSelf: "stretch",
         }}
       >
         <div
