@@ -102,7 +102,7 @@ export default function Home() {
       const data: ImagesResult = await res.json();
       setImages(data);
     } catch {
-      setImages({ total: 0, withoutAlt: [], error: "Falha ao analisar as imagens." });
+      setImages({ total: 0, withoutAlt: [], pageUrl: u, error: "Falha ao analisar as imagens." });
     } finally {
       setImagesLoading(false);
     }
@@ -675,7 +675,7 @@ function Overview({
         ) : imgsWithoutAlt.length === 0 ? (
           <Empty text={images ? "Todas as imagens têm alt text 🎉" : "—"} />
         ) : (
-          imgsWithoutAlt.slice(0, 2).map((im, i) => <ImageCard key={i} image={im} host={new URL(auditedUrl).host} />)
+          imgsWithoutAlt.slice(0, 2).map((im, i) => <ImageCard key={i} image={im} pageUrl={images?.pageUrl ?? auditedUrl} />)
         )}
       </Section>
     </div>
@@ -968,43 +968,18 @@ function LinkIssuesView({
   );
 }
 
-/* ---------- Card de imagem sem alt (com geração de alt text) ---------- */
-function ImageCard({ image, host }: { image: ImageIssue; host: string }) {
-  const [alt, setAlt] = useState<string | null>(null);
-  const [genLoading, setGenLoading] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+function formatBytes(bytes: number | null): string | null {
+  if (bytes === null || bytes <= 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
+/* ---------- Card de imagem sem alt ---------- */
+function ImageCard({ image, pageUrl }: { image: ImageIssue; pageUrl: string }) {
   const name = (image.src.split("?")[0].split("/").pop() || image.src).slice(0, 60);
   const dims = image.width && image.height ? `${image.width}×${image.height}px` : null;
-
-  async function generate() {
-    setGenLoading(true);
-    setGenError(null);
-    try {
-      const res = await fetch("/api/alt-text", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ imageUrl: image.src }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Falha ao gerar.");
-      setAlt(data.altText ?? "");
-    } catch (err) {
-      setGenError(err instanceof Error ? err.message : "Falha ao gerar alt text.");
-    } finally {
-      setGenLoading(false);
-    }
-  }
-
-  async function copy() {
-    if (!alt) return;
-    try {
-      await navigator.clipboard.writeText(alt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {}
-  }
+  const weight = formatBytes(image.bytes);
 
   return (
     <div style={{ display: "flex", gap: 16, alignItems: "stretch", padding: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
@@ -1019,35 +994,28 @@ function ImageCard({ image, host }: { image: ImageIssue; host: string }) {
       />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 10, padding: "4px 0" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span style={{ fontSize: 16, fontWeight: 500, color: "var(--text-default)", wordBreak: "break-all" }}>{name}</span>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 14, color: "var(--text-subtle)" }}>{host}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 16, fontWeight: 500, color: "var(--text-default)", wordBreak: "break-all" }}>{name}</span>
+            <span style={{ fontSize: 12, color: "#dc2626", background: "rgba(220,38,38,0.1)", padding: "2px 8px", borderRadius: 100 }}>
+              Sem alt text
+            </span>
+          </div>
+
+          {/* Página onde a imagem está */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>Página:</span>
+            <a href={pageUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--support-teal-base)", wordBreak: "break-all" }}>
+              {pageUrl}
+            </a>
             <Pill text={image.location} />
-            {dims && <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>· {dims}</span>}
+          </div>
+
+          {/* Tamanho da imagem */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: 13, color: "var(--text-subtle)" }}>
+            <span>Tamanho: {dims ?? "—"}</span>
+            {weight && <span>· {weight}</span>}
           </div>
         </div>
-
-        {alt !== null ? (
-          <div style={{ background: "var(--bg-light)", borderRadius: 12, padding: "8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ fontSize: 14, color: "var(--text-default)" }}>{alt || "(vazio)"}</span>
-            <button type="button" onClick={copy} title="Copiar" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, color: "var(--text-subtle)", fontSize: 12 }}>
-              {copied ? "Copiado!" : <Image src="/figma/copy.svg" alt="Copiar" width={20} height={20} style={{ width: 20, height: 20 }} />}
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: "#dc2626" }}>Sem alt text</span>
-            <button
-              type="button"
-              onClick={generate}
-              disabled={genLoading}
-              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: genLoading ? "default" : "pointer" }}
-            >
-              {genLoading ? "Gerando…" : "✦ Gerar alt text"}
-            </button>
-            {genError && <span style={{ fontSize: 12, color: "#dc2626" }}>{genError}</span>}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1074,7 +1042,7 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
             {images.withoutAlt.length} de {images.total} imagens sem alt text.
           </p>
           {images.withoutAlt.map((im, i) => (
-            <ImageCard key={i} image={im} host={(() => { try { return new URL(im.src).host; } catch { return ""; } })()} />
+            <ImageCard key={i} image={im} pageUrl={images.pageUrl} />
           ))}
         </>
       )}

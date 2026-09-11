@@ -11,6 +11,7 @@ export interface ImageIssue {
   alt: string | null; // null = atributo ausente; "" = vazio
   width: number;
   height: number;
+  bytes: number | null; // peso do arquivo (Content-Length), quando disponível
   selector: string;
   location: string;
 }
@@ -18,6 +19,7 @@ export interface ImageIssue {
 export interface ImagesResult {
   total: number;
   withoutAlt: ImageIssue[];
+  pageUrl: string; // página auditada onde as imagens estão
   error?: string;
 }
 
@@ -146,17 +148,54 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
       return { total: all.length, all };
     });
 
-    const withoutAlt = data.all.filter(
+    const pageUrl = page.url() || url;
+    const withoutAltRaw = data.all.filter(
       (im) => (im.alt === null || im.alt.trim() === "") && im.src && !im.src.startsWith("data:")
     );
-    return { total: data.total, withoutAlt };
+    const withoutAlt = await addSizes(withoutAltRaw);
+    return { total: data.total, withoutAlt, pageUrl };
   } catch (err) {
     const error =
-      err instanceof Error && err.name === "TimeoutError"
-        ? "A página demorou demais para carregar (timeout)."
+      err instanceof Error
+        ? err.name === "TimeoutError"
+          ? "A página demorou demais para carregar (timeout)."
+          : `Falha ao analisar as imagens: ${err.message}`
         : "Falha ao analisar as imagens da página.";
-    return { total: 0, withoutAlt: [], error };
+    return { total: 0, withoutAlt: [], pageUrl: url, error };
   } finally {
     if (browser) await browser.close();
   }
+}
+
+/** Busca o peso (Content-Length) de cada imagem via HEAD, com concorrência limitada. */
+async function addSizes(
+  imgs: Omit<ImageIssue, "bytes">[]
+): Promise<ImageIssue[]> {
+  const CONCURRENCY = 6;
+  const TIMEOUT_MS = 6000;
+  const result: ImageIssue[] = imgs.map((im) => ({ ...im, bytes: null }));
+  const queue = result.map((_, i) => i);
+
+  async function worker() {
+    while (queue.length) {
+      const i = queue.shift();
+      if (i === undefined) break;
+      const src = result[i].src;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        let res = await fetch(src, { method: "HEAD", signal: controller.signal });
+        if (res.status === 405 || res.status === 501 || !res.headers.get("content-length")) {
+          res = await fetch(src, { method: "GET", signal: controller.signal });
+        }
+        clearTimeout(timer);
+        const len = res.headers.get("content-length");
+        if (len) result[i].bytes = parseInt(len, 10);
+      } catch {
+        // ignora — bytes fica null
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+  return result;
 }
