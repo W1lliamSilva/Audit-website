@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import Image from "next/image";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
-import type { PerfResult, Strategy } from "@/lib/performance";
+import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
 
 function issueKey(it: LinkIssue): string {
@@ -82,7 +82,7 @@ export default function Home() {
       } catch {
         setPerf((prev) => ({
           ...prev,
-          [strat]: { strategy: strat, score: null, metrics: [], error: "Falha ao medir." },
+          [strat]: { strategy: strat, score: null, metrics: [], opportunities: [], error: "Falha ao medir." },
         }));
       } finally {
         setPerfLoading((prev) => ({ ...prev, [strat]: false }));
@@ -432,7 +432,15 @@ function EntryHero({
 }
 
 /* ---------- Gauge de desempenho ---------- */
-function Gauge({ score, loading }: { score: number | null; loading: boolean }) {
+function Gauge({
+  score,
+  loading,
+  onClick,
+}: {
+  score: number | null;
+  loading: boolean;
+  onClick?: () => void;
+}) {
   const size = 110;
   const stroke = 9;
   const r = (size - stroke) / 2;
@@ -440,37 +448,79 @@ function Gauge({ score, loading }: { score: number | null; loading: boolean }) {
   const value = score ?? 0;
   const color = score === null ? "#d8d6d3" : scoreColor(value);
   const offset = c * (1 - value / 100);
-  return (
+  const clickable = !loading && score !== null && !!onClick;
+
+  const svg = (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e6e4e1" strokeWidth={stroke} />
-      {score !== null && (
+      {loading ? (
+        // Spinner indeterminado
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
           fill="none"
-          stroke={color}
+          stroke="#78736f"
           strokeWidth={stroke}
-          strokeDasharray={c}
-          strokeDashoffset={offset}
           strokeLinecap="round"
+          strokeDasharray={`${c * 0.25} ${c * 0.75}`}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
+        >
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            from={`0 ${size / 2} ${size / 2}`}
+            to={`360 ${size / 2} ${size / 2}`}
+            dur="0.9s"
+            repeatCount="indefinite"
+          />
+        </circle>
+      ) : (
+        score !== null && (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth={stroke}
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        )
       )}
       <text
         x="50%"
-        y="48%"
+        y="47%"
         textAnchor="middle"
         dominantBaseline="middle"
-        style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 600, fontSize: 24, fill: "#000" }}
+        style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 600, fontSize: score === null && !loading ? 24 : 26, fill: score === null ? "#78736f" : "#000" }}
       >
-        {loading ? "…" : score === null ? "—" : value}
+        {loading ? "" : score === null ? "—" : value}
       </text>
-      <text x="50%" y="63%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 10, fill: "#78736f" }}>
-        /100
-      </text>
+      {!loading && (
+        <text x="50%" y="63%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 10, fill: "#78736f" }}>
+          /100
+        </text>
+      )}
     </svg>
   );
+
+  if (clickable) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title="Ver relatório de desempenho"
+        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "inline-flex", borderRadius: "50%" }}
+      >
+        {svg}
+      </button>
+    );
+  }
+  return svg;
 }
 
 function DeviceToggle({
@@ -549,6 +599,7 @@ function Overview({
   onStrategy: (s: Strategy) => void;
   onOpenView: (v: string) => void;
 }) {
+  const [reportOpen, setReportOpen] = useState(false);
   const current = perf[strategy];
   const activeIssues = result.linkIssues.filter((it) => !dismissed.has(issueKey(it)));
   const imgsWithoutAlt = images?.withoutAlt ?? [];
@@ -572,26 +623,32 @@ function Overview({
           </p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "3px 20px" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "3px 20px" }}>
           <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>Desempenho</span>
-          <Gauge score={current?.score ?? null} loading={perfLoading[strategy]} />
+          <Gauge score={current?.score ?? null} loading={perfLoading[strategy]} onClick={() => setReportOpen(true)} />
+          {perfLoading[strategy] ? (
+            <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>Analisando…</span>
+          ) : current && current.score !== null ? (
+            <button type="button" onClick={() => setReportOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "var(--support-teal-base)", textDecoration: "underline" }}>
+              Ver relatório
+            </button>
+          ) : null}
           <DeviceToggle strategy={strategy} onStrategy={onStrategy} />
           {current?.error && (
-            <span style={{ fontSize: 11, color: "#dc2626", maxWidth: 160, textAlign: "center" }}>{current.error}</span>
+            <span style={{ fontSize: 11, color: "#dc2626", maxWidth: 170, textAlign: "center" }}>{current.error}</span>
           )}
         </div>
       </div>
 
-      {/* métricas de desempenho */}
-      {current && current.score !== null && current.metrics.length > 0 && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          {current.metrics.map((m) => (
-            <div key={m.id} style={{ background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: "8px 12px", minWidth: 120 }}>
-              <div style={{ fontSize: 11, color: "var(--text-subtle)" }}>{m.label}</div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-default)" }}>{m.display}</div>
-            </div>
-          ))}
-        </div>
+      {reportOpen && (
+        <PerfModal
+          auditedUrl={auditedUrl}
+          strategy={strategy}
+          perf={perf}
+          perfLoading={perfLoading}
+          onStrategy={onStrategy}
+          onClose={() => setReportOpen(false)}
+        />
       )}
 
       <Divider />
@@ -1021,6 +1078,154 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
           ))}
         </>
       )}
+    </div>
+  );
+}
+
+/* ---------- Modal de relatório de desempenho (estilo PageSpeed) ---------- */
+const RATING_COLOR: Record<Rating, string> = {
+  good: "#16a34a",
+  average: "#d97706",
+  poor: "#dc2626",
+};
+const RATING_LABEL: Record<Rating, string> = {
+  good: "Bom",
+  average: "Precisa melhorar",
+  poor: "Ruim",
+};
+
+function PerfModal({
+  auditedUrl,
+  strategy,
+  perf,
+  perfLoading,
+  onStrategy,
+  onClose,
+}: {
+  auditedUrl: string;
+  strategy: Strategy;
+  perf: Record<Strategy, PerfResult | null>;
+  perfLoading: Record<Strategy, boolean>;
+  onStrategy: (s: Strategy) => void;
+  onClose: () => void;
+}) {
+  const current = perf[strategy];
+  const loading = perfLoading[strategy];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        padding: 24,
+        zIndex: 50,
+        overflowY: "auto",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--bg-lightest)",
+          borderRadius: 16,
+          width: "100%",
+          maxWidth: 640,
+          padding: 24,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 20,
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 20, color: "var(--text-default)", margin: 0 }}>
+              Relatório de desempenho
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: "4px 0 0", wordBreak: "break-all" }}>{auditedUrl}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fechar" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, lineHeight: 1, color: "var(--text-subtle)" }}>
+            ×
+          </button>
+        </div>
+
+        {/* Toggle */}
+        <DeviceToggle strategy={strategy} onStrategy={onStrategy} />
+
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "24px 0" }}>
+            <Gauge score={null} loading />
+            <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>Analisando {strategy === "mobile" ? "mobile" : "desktop"}…</span>
+          </div>
+        ) : current?.error ? (
+          <p style={{ fontSize: 14, color: "#dc2626" }}>{current.error}</p>
+        ) : current && current.score !== null ? (
+          <>
+            {/* Score */}
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+              <Gauge score={current.score} loading={false} />
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: scoreColor(current.score) }}>
+                  {current.score >= 90 ? "Bom" : current.score >= 50 ? "Precisa melhorar" : "Ruim"}
+                </div>
+                <div style={{ fontSize: 13, color: "var(--text-subtle)", maxWidth: 360, marginTop: 4 }}>
+                  Nota de desempenho ({strategy === "mobile" ? "Mobile" : "Desktop"}), baseada no Lighthouse do Google PageSpeed.
+                </div>
+              </div>
+            </div>
+
+            {/* Core Web Vitals */}
+            <div>
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 10px" }}>Métricas</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+                {current.metrics.map((m) => {
+                  const color = m.rating ? RATING_COLOR[m.rating] : "#78736f";
+                  return (
+                    <div key={m.id} style={{ background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: 2, background: color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>{m.label}</span>
+                      </div>
+                      <div style={{ fontSize: 20, fontWeight: 600, color, marginTop: 6 }}>{m.display}</div>
+                      {m.rating && <div style={{ fontSize: 11, color: "var(--text-subtle)", marginTop: 2 }}>{RATING_LABEL[m.rating]}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Oportunidades */}
+            {current.opportunities.length > 0 && (
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 10px" }}>
+                  Oportunidades de melhoria
+                </h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {current.opportunities.map((o) => (
+                    <div key={o.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "10px 14px" }}>
+                      <span style={{ fontSize: 14, color: "var(--text-default)" }}>{o.title}</span>
+                      <span style={{ fontSize: 13, color: "#d97706", whiteSpace: "nowrap", fontWeight: 600 }}>
+                        {o.display || `~${(o.savingsMs / 1000).toFixed(1)}s`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p style={{ fontSize: 11, color: "var(--text-subtle)", margin: 0 }}>
+              Verde = bom · Amarelo = precisa melhorar · Vermelho = ruim (limiares do Lighthouse).
+            </p>
+          </>
+        ) : (
+          <p style={{ fontSize: 14, color: "var(--text-subtle)" }}>Sem dados de desempenho.</p>
+        )}
+      </div>
     </div>
   );
 }

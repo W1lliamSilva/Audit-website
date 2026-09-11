@@ -6,17 +6,36 @@
 
 export type Strategy = "desktop" | "mobile";
 
+export type Rating = "good" | "average" | "poor";
+
 export interface PerfMetric {
   id: string;
   label: string;
   display: string;
+  score: number | null; // 0–1
+  rating: Rating | null;
+}
+
+export interface PerfOpportunity {
+  id: string;
+  title: string;
+  display: string;
+  savingsMs: number;
 }
 
 export interface PerfResult {
   strategy: Strategy;
   score: number | null; // 0–100 (null se indisponível)
   metrics: PerfMetric[];
+  opportunities: PerfOpportunity[];
   error?: string;
+}
+
+function ratingFromScore(s: number | null): Rating | null {
+  if (s === null) return null;
+  if (s >= 0.9) return "good";
+  if (s >= 0.5) return "average";
+  return "poor";
 }
 
 const METRIC_IDS: [string, string][] = [
@@ -65,6 +84,7 @@ export async function getPerformance(
           strategy,
           score: null,
           metrics: [],
+          opportunities: [],
           error:
             res.status === 429
               ? "PageSpeed atingiu o limite por minuto. Aguarde ~1 min e clique em Auditar de novo."
@@ -75,13 +95,28 @@ export async function getPerformance(
       const rawScore = data?.lighthouseResult?.categories?.performance?.score;
       const score =
         typeof rawScore === "number" ? Math.round(rawScore * 100) : null;
-      const audits = data?.lighthouseResult?.audits ?? {};
-      const metrics: PerfMetric[] = METRIC_IDS.map(([id, label]) => ({
-        id,
-        label,
-        display: audits[id]?.displayValue ?? "—",
-      }));
-      return { strategy, score, metrics };
+      const audits: Record<string, {
+        id?: string;
+        title?: string;
+        displayValue?: string;
+        score?: number | null;
+        details?: { type?: string; overallSavingsMs?: number };
+      }> = data?.lighthouseResult?.audits ?? {};
+      const metrics: PerfMetric[] = METRIC_IDS.map(([id, label]) => {
+        const s = typeof audits[id]?.score === "number" ? audits[id]!.score! : null;
+        return { id, label, display: audits[id]?.displayValue ?? "—", score: s, rating: ratingFromScore(s) };
+      });
+      const opportunities: PerfOpportunity[] = Object.entries(audits)
+        .filter(([, a]) => a?.details?.type === "opportunity" && (a.details.overallSavingsMs ?? 0) > 100)
+        .map(([id, a]) => ({
+          id,
+          title: a.title ?? id,
+          display: a.displayValue ?? "",
+          savingsMs: Math.round(a.details!.overallSavingsMs ?? 0),
+        }))
+        .sort((x, y) => y.savingsMs - x.savingsMs)
+        .slice(0, 8);
+      return { strategy, score, metrics, opportunities };
     } catch (err) {
       lastError =
         err instanceof Error && err.name === "AbortError"
@@ -92,5 +127,5 @@ export async function getPerformance(
       clearTimeout(timer);
     }
   }
-  return { strategy, score: null, metrics: [], error: lastError };
+  return { strategy, score: null, metrics: [], opportunities: [], error: lastError };
 }
