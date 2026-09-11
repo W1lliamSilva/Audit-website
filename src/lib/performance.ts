@@ -46,37 +46,55 @@ export async function getPerformance(
   const key = process.env.PAGESPEED_API_KEY;
   if (key) api.searchParams.set("key", key);
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 55000);
-  try {
-    const res = await fetch(api.toString(), { signal: controller.signal });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      return {
-        strategy,
-        score: null,
-        metrics: [],
-        error: `PageSpeed respondeu HTTP ${res.status}. ${detail.slice(0, 120)}`,
-      };
+  // O PageSpeed roda o Lighthouse ao vivo na 1ª análise de uma URL (lento);
+  // a 2ª chamada normalmente pega o resultado em cache do Google e é rápida.
+  // Por isso tentamos até 2 vezes, cada uma com timeout curto.
+  const ATTEMPTS = 2;
+  const PER_ATTEMPT_MS = 28000;
+  let lastError = "Falha ao consultar o PageSpeed.";
+
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PER_ATTEMPT_MS);
+    try {
+      const res = await fetch(api.toString(), { signal: controller.signal });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        if (res.status === 429 && attempt < ATTEMPTS) {
+          lastError = `PageSpeed HTTP 429 (cota/limite).`;
+          await new Promise((r) => setTimeout(r, 1200));
+          continue;
+        }
+        return {
+          strategy,
+          score: null,
+          metrics: [],
+          error:
+            res.status === 429
+              ? "PageSpeed: limite de cota atingido. Tente novamente em instantes."
+              : `PageSpeed respondeu HTTP ${res.status}. ${detail.slice(0, 120)}`,
+        };
+      }
+      const data = await res.json();
+      const rawScore = data?.lighthouseResult?.categories?.performance?.score;
+      const score =
+        typeof rawScore === "number" ? Math.round(rawScore * 100) : null;
+      const audits = data?.lighthouseResult?.audits ?? {};
+      const metrics: PerfMetric[] = METRIC_IDS.map(([id, label]) => ({
+        id,
+        label,
+        display: audits[id]?.displayValue ?? "—",
+      }));
+      return { strategy, score, metrics };
+    } catch (err) {
+      lastError =
+        err instanceof Error && err.name === "AbortError"
+          ? "A análise de desempenho demorou demais. Tente novamente."
+          : "Falha ao consultar o PageSpeed.";
+      // Em timeout, tenta de novo (o Google costuma cachear e responder rápido).
+    } finally {
+      clearTimeout(timer);
     }
-    const data = await res.json();
-    const rawScore = data?.lighthouseResult?.categories?.performance?.score;
-    const score =
-      typeof rawScore === "number" ? Math.round(rawScore * 100) : null;
-    const audits = data?.lighthouseResult?.audits ?? {};
-    const metrics: PerfMetric[] = METRIC_IDS.map(([id, label]) => ({
-      id,
-      label,
-      display: audits[id]?.displayValue ?? "—",
-    }));
-    return { strategy, score, metrics };
-  } catch (err) {
-    const error =
-      err instanceof Error && err.name === "AbortError"
-        ? "A análise de desempenho demorou demais (timeout)."
-        : "Falha ao consultar o PageSpeed.";
-    return { strategy, score: null, metrics: [], error };
-  } finally {
-    clearTimeout(timer);
   }
+  return { strategy, score: null, metrics: [], error: lastError };
 }
