@@ -60,18 +60,14 @@ export async function getPerformance(
       const res = await fetch(api.toString(), { signal: controller.signal });
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
-        if (res.status === 429 && attempt < ATTEMPTS) {
-          lastError = `PageSpeed HTTP 429 (cota/limite).`;
-          await new Promise((r) => setTimeout(r, 1200));
-          continue;
-        }
+        // Em 429 NÃO reintentamos (piora o rate limit por minuto) — retornamos direto.
         return {
           strategy,
           score: null,
           metrics: [],
           error:
             res.status === 429
-              ? "PageSpeed: limite de cota atingido. Tente novamente em instantes."
+              ? "PageSpeed atingiu o limite por minuto. Aguarde ~1 min e clique em Auditar de novo."
               : `PageSpeed respondeu HTTP ${res.status}. ${detail.slice(0, 120)}`,
         };
       }
