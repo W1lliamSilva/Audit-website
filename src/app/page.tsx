@@ -5,6 +5,7 @@ import Image from "next/image";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
+import type { SeoResult, PageSeo } from "@/lib/seo";
 
 function issueKey(it: LinkIssue): string {
   return `${it.kind}|${it.selector}|${it.targetUrl ?? it.href ?? ""}`;
@@ -51,6 +52,8 @@ export default function Home() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [images, setImages] = useState<ImagesResult | null>(null);
   const [imagesLoading, setImagesLoading] = useState(false);
+  const [seo, setSeo] = useState<SeoResult | null>(null);
+  const [seoLoading, setSeoLoading] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>("desktop");
   const [perf, setPerf] = useState<Record<Strategy, PerfResult | null>>({
     desktop: null,
@@ -108,6 +111,23 @@ export default function Home() {
     }
   }, []);
 
+  const loadSeo = useCallback(async (u: string) => {
+    setSeoLoading(true);
+    try {
+      const res = await fetch("/api/seo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: u }),
+      });
+      const data: SeoResult = await res.json();
+      setSeo(data);
+    } catch {
+      setSeo({ pages: [], source: "links", error: "Falha ao auditar o SEO das páginas." });
+    } finally {
+      setSeoLoading(false);
+    }
+  }, []);
+
   async function runAudit(e: React.FormEvent) {
     e.preventDefault();
     if (!url.trim()) return;
@@ -116,6 +136,7 @@ export default function Home() {
     setResult(null);
     setPerf({ desktop: null, mobile: null });
     setImages(null);
+    setSeo(null);
     setDismissed(new Set());
     setActive("Visão geral");
     try {
@@ -200,7 +221,12 @@ export default function Home() {
                 key={item.label}
                 type="button"
                 disabled={disabled}
-                onClick={() => setActive(item.label)}
+                onClick={() => {
+                  setActive(item.label);
+                  if (item.view === "seo" && auditedUrl && !seo && !seoLoading) {
+                    loadSeo(auditedUrl);
+                  }
+                }}
                 style={{
                   width: "100%",
                   textAlign: "left",
@@ -328,6 +354,8 @@ export default function Home() {
                 />
               ) : activeItem.view === "images" ? (
                 <ImagesView images={images} loading={imagesLoading} />
+              ) : activeItem.view === "seo" ? (
+                <SeoView seo={seo} loading={seoLoading} />
               ) : (
                 <CategoryView
                   category={result.categories.find((c) => c.id === activeItem.view)}
@@ -1213,6 +1241,131 @@ function PerfModal({
           <p style={{ fontSize: 14, color: "var(--text-subtle)" }}>Sem dados de desempenho.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Tela de SEO (abas por página) ---------- */
+function pageLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const p = u.pathname.replace(/\/$/, "");
+    return p === "" ? "Home" : p.length > 28 ? "…" + p.slice(-27) : p;
+  } catch {
+    return url;
+  }
+}
+
+function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) {
+  const [tab, setTab] = useState(0);
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        <Empty text="Descobrindo e auditando as páginas do site…" />
+      </div>
+    );
+  }
+  if (!seo) return <Empty text="—" />;
+  if (seo.error) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        <Empty text={seo.error} />
+      </div>
+    );
+  }
+
+  const pages = seo.pages;
+  const current = pages[Math.min(tab, pages.length - 1)];
+
+  function dotColor(p: PageSeo): string {
+    if (p.error || p.totals.fail > 0) return "#dc2626";
+    if (p.totals.warn > 0) return "#d97706";
+    return "#16a34a";
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: "4px 0 0" }}>
+          {pages.length} página{pages.length !== 1 ? "s" : ""} · descobertas via {seo.source === "sitemap" ? "sitemap.xml" : "links internos"}
+        </p>
+      </div>
+
+      {/* Abas de páginas */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", borderBottom: "1px solid var(--border-subtle)", paddingBottom: 10 }}>
+        {pages.map((p, i) => {
+          const activeTab = i === (tab < pages.length ? tab : 0);
+          return (
+            <button
+              key={p.url}
+              type="button"
+              onClick={() => setTab(i)}
+              title={p.url}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 100,
+                border: "1px solid " + (activeTab ? "var(--bg-darker)" : "var(--stroke-light)"),
+                background: activeTab ? "var(--bg-darker)" : "#fff",
+                color: activeTab ? "#fff" : "var(--text-default)",
+                cursor: "pointer",
+                fontSize: 13,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor(p), flexShrink: 0 }} />
+              {pageLabel(p.url)}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Página selecionada */}
+      {current && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <a href={current.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--support-teal-base)", wordBreak: "break-all" }}>
+            {current.url}
+          </a>
+          {current.error ? (
+            <Empty text={current.error} />
+          ) : (
+            <>
+              <div style={{ fontSize: 13 }}>
+                <span style={{ color: "#16a34a" }}>✓ {current.totals.pass} ok</span>{"  ·  "}
+                <span style={{ color: "#b45309" }}>! {current.totals.warn} avisos</span>{"  ·  "}
+                <span style={{ color: "#dc2626" }}>✕ {current.totals.fail} falhas</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {current.checks.map((check) => {
+                  const meta = STATUS_META[check.status];
+                  return (
+                    <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+                      <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+                        {meta.icon}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
+                        <div style={{ color: "rgba(36,35,32,0.7)", fontSize: 14 }}>{check.message}</div>
+                        {check.details && check.details.length > 0 && (
+                          <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
+                            {check.details.map((d, i) => <li key={i}>{d}</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
