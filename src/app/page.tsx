@@ -35,7 +35,7 @@ function splitDetail(d: string): { desc: string; location?: string } {
 const NAV_ITEMS: { label: string; sub?: string; view: string }[] = [
   { label: "Visão geral", view: "overview" },
   { label: "Links quebrados", view: "links" },
-  { label: "Botões sem ação", view: "accessibility" },
+  { label: "Botões sem ação", view: "buttons" },
   { label: "Imagens e alt text", sub: "a parte de otimização", view: "images" },
   { label: "SEO", sub: "meta tags, headings, títulos ausentes", view: "seo" },
 ];
@@ -316,6 +316,15 @@ export default function Home() {
                   auditedUrl={auditedUrl}
                   dismissed={dismissed}
                   onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
+                />
+              ) : activeItem.view === "buttons" ? (
+                <LinkIssuesView
+                  title="Botões sem ação"
+                  issues={result.buttonIssues}
+                  auditedUrl={auditedUrl}
+                  dismissed={dismissed}
+                  onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
+                  emptyText="Nenhum botão sem ação encontrado 🎉"
                 />
               ) : activeItem.view === "images" ? (
                 <ImagesView images={images} loading={imagesLoading} />
@@ -839,6 +848,14 @@ function LinkIssueCard({
       {/* Linha 2: descrição */}
       <p style={{ margin: 0, fontSize: 14, color: "var(--text-subtle)" }}>{issue.description}</p>
 
+      {/* Página onde aparece */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>Página:</span>
+        <a href={auditedUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--support-teal-base)", wordBreak: "break-all" }}>
+          {auditedUrl}
+        </a>
+      </div>
+
       {/* Linha 3: seletor + ações */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <code
@@ -944,12 +961,14 @@ function LinkIssuesView({
   auditedUrl,
   dismissed,
   onDismiss,
+  emptyText,
 }: {
   title: string;
   issues: LinkIssue[];
   auditedUrl: string;
   dismissed: Set<string>;
   onDismiss: (k: string) => void;
+  emptyText?: string;
 }) {
   const active = issues.filter((it) => !dismissed.has(issueKey(it)));
   return (
@@ -958,7 +977,7 @@ function LinkIssuesView({
         {title}
       </h1>
       {active.length === 0 ? (
-        <Empty text="Nenhum link com problema encontrado 🎉" />
+        <Empty text={emptyText ?? "Nenhum link com problema encontrado 🎉"} />
       ) : (
         active.map((it) => (
           <LinkIssueCard key={issueKey(it)} issue={it} auditedUrl={auditedUrl} onDismiss={() => onDismiss(issueKey(it))} />

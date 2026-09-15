@@ -20,7 +20,7 @@ export interface Category {
   checks: CheckResult[];
 }
 
-export type LinkIssueKind = "no-link" | "broken" | "generic-text" | "no-text";
+export type LinkIssueKind = "no-link" | "broken" | "generic-text" | "no-text" | "no-action";
 
 export interface LinkIssue {
   kind: LinkIssueKind;
@@ -50,6 +50,7 @@ export interface AuditResult {
   totals: { pass: number; warn: number; fail: number };
   categories: Category[];
   linkIssues: LinkIssue[];
+  buttonIssues: LinkIssue[];
   stats: {
     htmlBytes: number;
     images: number;
@@ -476,6 +477,38 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
     });
   }
 
+  // ---------- Botões sem ação ----------
+  // Botões (ou role=button) sem ação detectável no HTML: sem onclick, sem type
+  // de envio e fora de formulário. Pode haver listener JS — sinalizamos para o
+  // usuário confirmar (com o print). Links com href são ação e ficam de fora.
+  const buttonIssues: LinkIssue[] = [];
+  $("button, [role='button']").each((_, el) => {
+    if (buttonIssues.length >= 40) return;
+    const $el = $(el);
+    const tag = (el.tagName ?? el.name ?? "").toLowerCase();
+    const href = ($el.attr("href") ?? "").trim();
+    // <a> com href tem destino/ação; <a> sem href já entra em linkIssues (no-link).
+    if (tag === "a") return;
+    const disabled = $el.attr("disabled") !== undefined || $el.attr("aria-disabled") === "true";
+    if (disabled) return;
+    const hasOnclick = !!$el.attr("onclick");
+    const type = ($el.attr("type") ?? "").toLowerCase();
+    const inForm = $el.closest("form").length > 0;
+    const submitsForm = inForm && (type === "submit" || type === "reset" || type === "");
+    const hasHtmlAction = hasOnclick || submitsForm || !!$el.attr("formaction") || href !== "";
+    if (hasHtmlAction) return;
+    const text = $el.text().trim() || $el.attr("aria-label")?.trim() || "";
+    buttonIssues.push({
+      kind: "no-action",
+      label: text ? "Botão sem ação" : "Botão sem ação e sem texto",
+      text: text || "(sem texto)",
+      selector: cssPath($, el),
+      location: locationOf($, el),
+      description:
+        'Botão sem ação detectável no HTML (sem onclick, sem type de envio e fora de formulário). Pode ter um listener JavaScript — confirme clicando em "Ver na página".',
+    });
+  });
+
   // ---------- Montagem ----------
   const categories: Category[] = [
     { id: "seo", label: "SEO", checks: seo },
@@ -503,6 +536,7 @@ export async function auditUrl(rawUrl: string): Promise<AuditResult> {
     totals,
     categories,
     linkIssues,
+    buttonIssues,
     stats: {
       htmlBytes: Buffer.byteLength(html, "utf8"),
       images: imgEls.length,
