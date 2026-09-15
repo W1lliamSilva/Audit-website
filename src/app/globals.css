@@ -14,13 +14,13 @@
   --gold-800: #654d1a;
 
   --background: #f5f5f2; /* Dark 50 (neutro claro) */
-  --foreground: #001a16;
+  --foreground: #131311; /* text/primary */
   --bg-lightest: #f5f5f2;
   --bg-light: #ecebe6; /* sidebar */
-  --bg-lighter: #fbfbf9; /* inputs / cards */
+  --bg-lighter: #fbfbf9; /* inputs */
   --bg-dark: #001a16; /* nav ativo (verde da marca) */
-  --bg-darker: #001a16; /* botões / elementos escuros */
-  --text-default: #001a16;
+  --bg-darker: #b7903b; /* botão primário (action/primary — dourado) */
+  --text-default: #131311; /* text/primary */
   --text-subtle: #6b6f6c;
   --stroke-light: #d8d6d0;
   --border-subtle: rgba(0, 26, 22, 0.1);
@@ -28,13 +28,22 @@
   --radius-lg: 8px;
   --radius-xl: 12px;
 
-  /* Acento da marca (dourado). "teal" mantido como nome de variável por
-     compatibilidade, mas agora aponta para o dourado. */
-  --support-teal-base: #816323; /* Gold 700 — texto branco legível */
-  --support-teal-light: #efe4c6; /* dourado claro (pills) */
+  /* Botões (Design System — 08/ Actions) */
+  --action-primary: #b7903b;
+  --action-primary-hover: #cda748;
+  --action-secondary: #9d7a2e;
+  --action-emphasis: #003e33; /* variante "accent" (verde) */
+  --action-emphasis-hover: #225947;
+  --text-on-action: #faf5e8; /* label creme sobre botão */
+  --surface-elevated: #fffdfc;
+
+  /* Acento secundário = verde emphasis (links, botões accent, pills).
+     "teal" mantido como nome por compatibilidade. */
+  --support-teal-base: #003e33; /* verde emphasis */
+  --support-teal-light: #dce7e2; /* verde claro (pills) */
   --support-yellow-base: #e89d01;
   --support-red-base: #e32d14;
-  --support-orange-light: #f0e2c2;
+  --support-orange-light: #f0e2c2; /* dourado claro (pill de localização) */
 
   /* Tipografia */
   --font-heading: "Times New Roman", Times, Georgia, serif;

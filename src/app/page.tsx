@@ -297,7 +297,7 @@ export default function Home() {
                 type="submit"
                 disabled={loading}
                 style={{
-                  background: loading ? "#4a4844" : "var(--bg-darker)",
+                  background: loading ? "#9d7a2e" : "var(--bg-darker)",
                   color: "#fff",
                   border: "none",
                   borderRadius: 4,
