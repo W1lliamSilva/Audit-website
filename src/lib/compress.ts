@@ -50,6 +50,17 @@ export async function compressImage(
     return { ok: false, error: err instanceof Error && err.name === "AbortError" ? "A imagem demorou demais para baixar." : "Falha ao baixar a imagem." };
   }
 
+  return compressBuffer(buf, { quality, maxWidth });
+}
+
+/** Comprime um buffer de imagem já em memória (upload). */
+export async function compressBuffer(
+  buf: Buffer,
+  opts: { quality?: number; maxWidth?: number } = {}
+): Promise<CompressResult> {
+  const quality = opts.quality ?? 78;
+  const maxWidth = opts.maxWidth ?? 1600;
+  if (buf.length > MAX_INPUT_BYTES) return { ok: false, error: "Imagem muito grande para comprimir (limite 20 MB)." };
   try {
     const originalBytes = buf.length;
     const img = sharp(buf, { failOn: "none" });

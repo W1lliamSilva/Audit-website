@@ -40,6 +40,7 @@ const NAV_ITEMS: { label: string; sub?: string; view: string }[] = [
   { label: "Botões sem ação", view: "buttons" },
   { label: "Imagens e alt text", sub: "a parte de otimização", view: "images" },
   { label: "SEO", sub: "meta tags, headings, títulos ausentes", view: "seo" },
+  { label: "Compressão de imagens", sub: "envie imagens e otimize", view: "compressor" },
 ];
 
 export default function Home() {
@@ -216,12 +217,10 @@ export default function Home() {
         <nav style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
           {NAV_ITEMS.map((item) => {
             const isActive = active === item.label;
-            const disabled = !hasResult && item.view !== "overview";
             return (
               <button
                 key={item.label}
                 type="button"
-                disabled={disabled}
                 onClick={() => {
                   setActive(item.label);
                   if (item.view === "seo" && auditedUrl && !seo && !seoLoading) {
@@ -232,8 +231,7 @@ export default function Home() {
                   width: "100%",
                   textAlign: "left",
                   border: "none",
-                  cursor: disabled ? "not-allowed" : "pointer",
-                  opacity: disabled ? 0.5 : 1,
+                  cursor: "pointer",
                   padding: 16,
                   borderRadius: "var(--radius-xl)",
                   background: isActive ? "var(--bg-dark)" : "var(--nav-hover)",
@@ -270,17 +268,13 @@ export default function Home() {
 
       {/* Área principal */}
       <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {!hasResult ? (
-          <EntryHero
-            url={url}
-            setUrl={setUrl}
-            loading={loading}
-            error={error}
-            onSubmit={runAudit}
-          />
+        {activeItem.view === "compressor" ? (
+          <div style={{ padding: 40 }}>
+            <CompressorView />
+          </div>
         ) : (
           <div style={{ padding: 40, display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Barra de nova auditoria */}
+            {/* Barra de auditoria (sempre visível) */}
             <form onSubmit={runAudit} style={{ display: "flex", gap: 10, maxWidth: 520 }}>
               <input
                 type="text"
@@ -318,8 +312,10 @@ export default function Home() {
             </form>
             {error && <div style={{ color: "#dc2626", fontSize: 14 }}>⚠️ {error}</div>}
 
-            {result &&
-              (activeItem.view === "overview" ? (
+            {!hasResult ? (
+              <AuditEmptyState loading={loading} label={activeItem.label} view={activeItem.view} />
+            ) : (
+              activeItem.view === "overview" ? (
                 <Overview
                   result={result}
                   auditedUrl={auditedUrl}
@@ -370,101 +366,27 @@ export default function Home() {
   );
 }
 
-/* ---------- Tela inicial (entrada) ---------- */
-function EntryHero({
-  url,
-  setUrl,
-  loading,
-  error,
-  onSubmit,
-}: {
-  url: string;
-  setUrl: (v: string) => void;
-  loading: boolean;
-  error: string | null;
-  onSubmit: (e: React.FormEvent) => void;
-}) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 460,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <Image src="/figma/search.svg" alt="" width={56} height={56} style={{ width: 56, height: 56 }} priority />
-        <h1
-          style={{
-            fontFamily: "var(--font-geist-sans), system-ui, sans-serif",
-            fontWeight: 500,
-            fontSize: 28,
-            lineHeight: "31px",
-            color: "var(--text-default)",
-            margin: 0,
-            textAlign: "center",
-          }}
-        >
-          Site Audit Tool
-        </h1>
-        <p style={{ fontSize: 14, lineHeight: "22px", color: "var(--text-subtle)", textAlign: "center", maxWidth: 384, margin: 0 }}>
-          Cole a URL de uma página para checar SEO, acessibilidade, imagens sem alt text e links quebrados.
-        </p>
-        <form onSubmit={onSubmit} style={{ display: "flex", gap: 10, width: "100%", maxWidth: 400, marginTop: 6 }}>
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Link do site"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: "var(--bg-lighter)",
-              color: "var(--text-default)",
-              border: "1px solid var(--stroke-light)",
-              borderRadius: 4,
-              padding: "8px 12px",
-              fontSize: 14,
-              lineHeight: "22px",
-              outline: "none",
-            }}
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              background: loading ? "#4a4844" : "var(--bg-darker)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 4,
-              padding: "8px 20px",
-              fontSize: 16,
-              lineHeight: "24px",
-              cursor: loading ? "default" : "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {loading ? "Auditando…" : "Auditar"}
-          </button>
-        </form>
-        {error && (
-          <div style={{ width: "100%", maxWidth: 400, padding: 12, background: "rgba(220, 38, 38, 0.1)", color: "#dc2626", borderRadius: 4, fontSize: 14, textAlign: "center" }}>
-            ⚠️ {error}
-          </div>
-        )}
+/* ---------- Estado vazio (antes de auditar) ---------- */
+function AuditEmptyState({ loading, label, view }: { loading: boolean; label: string; view: string }) {
+  if (loading) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "80px 24px" }}>
+        <Image src="/figma/search.svg" alt="" width={48} height={48} style={{ width: 48, height: 48, opacity: 0.6 }} />
+        <p style={{ fontSize: 14, color: "var(--text-subtle)" }}>Auditando o site…</p>
       </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "72px 24px", textAlign: "center" }}>
+      <Image src="/figma/search.svg" alt="" width={56} height={56} style={{ width: 56, height: 56 }} priority />
+      <h2 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+        Site Audit Tool
+      </h2>
+      <p style={{ fontSize: 14, color: "var(--text-subtle)", maxWidth: 420, margin: 0 }}>
+        {view === "overview"
+          ? "Cole a URL de uma página acima e clique em Auditar para checar SEO, acessibilidade, imagens sem alt text e links quebrados."
+          : `Faça uma auditoria acima para ver “${label}”. Ou use “Compressão de imagens” na barra lateral, que funciona sem auditar.`}
+      </p>
     </div>
   );
 }
@@ -1554,6 +1476,208 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
               </div>
             </>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Aba independente: Compressão de imagens ---------- */
+type CItem = {
+  id: string;
+  name: string;
+  preview: string;
+  kind: "file" | "url";
+  payload: string; // dataUrl (file) ou url
+  result: CompressResult | null;
+  loading: boolean;
+};
+
+function CompressorView() {
+  const [quality, setQuality] = useState(78);
+  const [items, setItems] = useState<CItem[]>([]);
+  const [urlInput, setUrlInput] = useState("");
+  const [zipping, setZipping] = useState(false);
+
+  const uid = () => Math.random().toString(36).slice(2);
+
+  async function compressItem(id: string, payload: string, kind: "file" | "url", q: number) {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, loading: true } : it)));
+    try {
+      const body = kind === "file" ? { data: payload, quality: q } : { url: payload, quality: q };
+      const res = await fetch("/api/compress", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data: CompressResult = await res.json();
+      setItems((prev) => prev.map((it) => (it.id === id ? { ...it, result: data, loading: false } : it)));
+    } catch {
+      setItems((prev) => prev.map((it) => (it.id === id ? { ...it, result: { ok: false, error: "Falha ao comprimir." }, loading: false } : it)));
+    }
+  }
+
+  function onFiles(files: FileList | null) {
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result);
+        const id = uid();
+        const item: CItem = { id, name: file.name, preview: dataUrl, kind: "file", payload: dataUrl, result: null, loading: false };
+        setItems((prev) => [...prev, item]);
+        compressItem(id, dataUrl, "file", quality);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function addUrl() {
+    const u = urlInput.trim();
+    if (!u) return;
+    const id = uid();
+    const name = (u.split("?")[0].split("/").pop() || u).slice(0, 60);
+    setItems((prev) => [...prev, { id, name, preview: u, kind: "url", payload: u, result: null, loading: false }]);
+    compressItem(id, u, "url", quality);
+    setUrlInput("");
+  }
+
+  function recompressAll() {
+    items.forEach((it) => compressItem(it.id, it.payload, it.kind, quality));
+  }
+
+  function removeItem(id: string) {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+  }
+
+  async function downloadZip() {
+    const ok = items.filter((it) => it.result?.ok && it.result.dataUrl);
+    if (ok.length === 0) return;
+    setZipping(true);
+    try {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const used = new Set<string>();
+      for (const it of ok) {
+        const base = it.name.replace(/\.[a-z0-9]+$/i, "") || "imagem";
+        let fname = `${base}.webp`;
+        let n = 1;
+        while (used.has(fname)) fname = `${base}-${n++}.webp`;
+        used.add(fname);
+        zip.file(fname, (it.result!.dataUrl as string).split(",")[1], { base64: true });
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = "imagens-otimizadas.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 2000);
+    } finally {
+      setZipping(false);
+    }
+  }
+
+  const okCount = items.filter((it) => it.result?.ok).length;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 900 }}>
+      <div>
+        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+          Compressão de imagens
+        </h1>
+        <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: "4px 0 0" }}>
+          Envie imagens do seu computador (ou cole uma URL), escolha a qualidade e baixe otimizadas em WebP. Não precisa auditar um site.
+        </p>
+      </div>
+
+      {/* Dropzone / upload */}
+      <label
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          onFiles(e.dataTransfer.files);
+        }}
+        style={{
+          border: "2px dashed var(--stroke-light)",
+          borderRadius: 12,
+          padding: "28px 16px",
+          textAlign: "center",
+          cursor: "pointer",
+          background: "#fff",
+          color: "var(--text-subtle)",
+          fontSize: 14,
+        }}
+      >
+        <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => onFiles(e.target.files)} />
+        <div style={{ fontSize: 28, marginBottom: 6 }}>🗜</div>
+        Arraste imagens aqui ou <span style={{ color: "var(--support-teal-base)", textDecoration: "underline" }}>clique para selecionar</span>
+      </label>
+
+      {/* URL + qualidade + ações */}
+      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", padding: "12px 16px", background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1, minWidth: 240 }}>
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addUrl(); }}
+            placeholder="…ou cole a URL de uma imagem"
+            style={{ flex: 1, minWidth: 0, background: "var(--bg-lighter)", color: "var(--text-default)", border: "1px solid var(--stroke-light)", borderRadius: 4, padding: "8px 12px", fontSize: 14, outline: "none" }}
+          />
+          <button type="button" onClick={addUrl} style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 4, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>Adicionar</button>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "var(--text-default)" }}>
+          Qualidade
+          <input type="range" min={30} max={95} step={1} value={quality} onChange={(e) => setQuality(Number(e.target.value))} style={{ accentColor: "var(--support-teal-base)" }} />
+          <span style={{ fontWeight: 600, minWidth: 28 }}>{quality}</span>
+        </label>
+        {items.length > 0 && (
+          <button type="button" onClick={recompressAll} style={{ background: "transparent", color: "var(--text-default)", border: "1px solid var(--stroke-light)", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+            Recomprimir todas
+          </button>
+        )}
+        {okCount > 0 && (
+          <button type="button" onClick={downloadZip} disabled={zipping} style={{ background: "var(--support-teal-base)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: zipping ? "default" : "pointer" }}>
+            {zipping ? "Gerando .zip…" : `Baixar tudo (.zip · ${okCount})`}
+          </button>
+        )}
+      </div>
+
+      {/* Lista */}
+      {items.length === 0 ? (
+        <Empty text="Nenhuma imagem adicionada ainda." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {items.map((it) => {
+            const r = it.result;
+            const downloadName = (it.name.replace(/\.[a-z0-9]+$/i, "") || "imagem") + ".webp";
+            return (
+              <div key={it.id} style={{ display: "flex", gap: 16, alignItems: "center", padding: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={it.preview} alt="" style={{ width: 84, height: 64, objectFit: "cover", borderRadius: 8, background: "var(--bg-light)", flexShrink: 0 }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0.15"; }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-default)", wordBreak: "break-all" }}>{it.name}</div>
+                  <div style={{ fontSize: 13, color: "var(--text-subtle)", marginTop: 4 }}>
+                    {it.loading ? "Comprimindo…" : r?.ok ? (
+                      <>
+                        {formatBytes(r.originalBytes ?? 0)} → <strong style={{ color: "var(--text-default)" }}>{formatBytes(r.compressedBytes ?? 0)}</strong>
+                        {typeof r.savedPct === "number" && <span style={{ color: r.savedPct > 0 ? "#16a34a" : "#78736f", marginLeft: 6, fontWeight: 600 }}>({r.savedPct > 0 ? "−" : ""}{Math.abs(r.savedPct)}%)</span>}
+                        {r.width && r.height && <span style={{ marginLeft: 8 }}>· {r.width}×{r.height}px</span>}
+                      </>
+                    ) : r && !r.ok ? <span style={{ color: "#dc2626" }}>{r.error}</span> : "—"}
+                  </div>
+                </div>
+                {r?.ok && (
+                  <a href={r.dataUrl} download={downloadName} style={{ background: "var(--support-teal-base)", color: "#fff", fontSize: 13, textDecoration: "none", padding: "6px 14px", borderRadius: 8, whiteSpace: "nowrap" }}>Baixar WebP</a>
+                )}
+                <button type="button" onClick={() => removeItem(it.id)} aria-label="Remover" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "var(--text-subtle)", lineHeight: 1 }}>×</button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
