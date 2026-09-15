@@ -1,36 +1,51 @@
 @import "tailwindcss";
 
 :root {
-  /* Tokens do design (Figma — Notion Pulse / Site Audit Tool) */
-  --background: #fbfbfa; /* bg/lightest */
-  --foreground: #242320; /* text/default */
-  --bg-lightest: #fbfbfa;
-  --bg-light: #edeceb; /* sidebar */
-  --bg-lighter: #f7f7f5; /* input */
-  --bg-dark: #37352f; /* nav ativo */
-  --bg-darker: #242320; /* botão / texto default */
-  --text-default: #242320;
-  --text-subtle: #78736f;
-  --stroke-light: #d8d6d3;
-  --border-subtle: rgba(36, 35, 32, 0.1);
-  --nav-hover: rgba(55, 53, 47, 0.05);
+  /* ===== Collateral — Design System ===== */
+  /* Marca: verde escuro + dourado + neutros claros. Títulos serifados
+     (Tobias é paga → usamos Times New Roman por ora). */
+
+  /* Cores base */
+  --brand-green: #001a16; /* 800 */
+  --gold-300: #dcbf6d;
+  --gold-400: #cda748;
+  --gold-500: #b7903b;
+  --gold-700: #816323;
+  --gold-800: #654d1a;
+
+  --background: #f5f5f2; /* Dark 50 (neutro claro) */
+  --foreground: #001a16;
+  --bg-lightest: #f5f5f2;
+  --bg-light: #ecebe6; /* sidebar */
+  --bg-lighter: #fbfbf9; /* inputs / cards */
+  --bg-dark: #001a16; /* nav ativo (verde da marca) */
+  --bg-darker: #001a16; /* botões / elementos escuros */
+  --text-default: #001a16;
+  --text-subtle: #6b6f6c;
+  --stroke-light: #d8d6d0;
+  --border-subtle: rgba(0, 26, 22, 0.1);
+  --nav-hover: rgba(0, 26, 22, 0.05);
   --radius-lg: 8px;
   --radius-xl: 12px;
-  /* Cores de suporte (status / badges) */
-  --support-teal-base: #0a7b77;
-  --support-teal-light: #bde6e4;
+
+  /* Acento da marca (dourado). "teal" mantido como nome de variável por
+     compatibilidade, mas agora aponta para o dourado. */
+  --support-teal-base: #816323; /* Gold 700 — texto branco legível */
+  --support-teal-light: #efe4c6; /* dourado claro (pills) */
   --support-yellow-base: #e89d01;
   --support-red-base: #e32d14;
-  --support-orange-light: #ffdec4;
+  --support-orange-light: #f0e2c2;
+
+  /* Tipografia */
+  --font-heading: "Times New Roman", Times, Georgia, serif;
+  --font-body: var(--font-inter);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
-  --font-body: var(--font-inter);
 }
 
 body {

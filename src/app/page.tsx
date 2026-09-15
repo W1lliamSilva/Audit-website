@@ -379,7 +379,7 @@ function AuditEmptyState({ loading, label, view }: { loading: boolean; label: st
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "72px 24px", textAlign: "center" }}>
       <Image src="/figma/search.svg" alt="" width={56} height={56} style={{ width: 56, height: 56 }} priority />
-      <h2 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+      <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
         Site Audit Tool
       </h2>
       <p style={{ fontSize: 14, color: "var(--text-subtle)", maxWidth: 420, margin: 0 }}>
@@ -456,7 +456,7 @@ function Gauge({
         y="47%"
         textAnchor="middle"
         dominantBaseline="middle"
-        style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 600, fontSize: score === null && !loading ? 24 : 26, fill: score === null ? "#78736f" : "#000" }}
+        style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: score === null && !loading ? 24 : 26, fill: score === null ? "#78736f" : "#000" }}
       >
         {loading ? "" : score === null ? "—" : value}
       </text>
@@ -569,7 +569,7 @@ function Overview({
       {/* Cabeçalho + desempenho */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 10 }}>
-          <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
+          <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
             Site Audit Tool
           </h1>
           <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: 0, wordBreak: "break-all" }}>{auditedUrl}</p>
@@ -689,7 +689,7 @@ function Section({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
+        <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
           {title}
         </h2>
         {onSeeAll && (
@@ -708,7 +708,7 @@ function CategoryView({ category, title }: { category?: Category; title: string 
   if (!category) return <Empty text="Sem dados para esta seção." />;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
+      <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
         {title}
       </h1>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -924,7 +924,7 @@ function LinkIssuesView({
   const active = issues.filter((it) => !dismissed.has(issueKey(it)));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
+      <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
         {title}
       </h1>
       {active.length === 0 ? (
@@ -1127,7 +1127,7 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
+      <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
         Imagens e alt text
       </h1>
       {loading ? (
@@ -1271,7 +1271,7 @@ function PerfModal({
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <h2 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 20, color: "var(--text-default)", margin: 0 }}>
+            <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 20, color: "var(--text-default)", margin: 0 }}>
               Relatório de desempenho
             </h2>
             <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: "4px 0 0", wordBreak: "break-all" }}>{auditedUrl}</p>
@@ -1374,7 +1374,7 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
   if (loading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
         <Empty text="Descobrindo e auditando as páginas do site…" />
       </div>
     );
@@ -1383,7 +1383,7 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
   if (seo.error) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
         <Empty text={seo.error} />
       </div>
     );
@@ -1401,7 +1401,7 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
-        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
         <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: "4px 0 0" }}>
           {pages.length} página{pages.length !== 1 ? "s" : ""} · descobertas via {seo.source === "sitemap" ? "sitemap.xml" : "links internos"}
         </p>
@@ -1646,7 +1646,7 @@ function CompressorView() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 900 }}>
       <div>
-        <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
           Compressão de imagens
         </h1>
         <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: "4px 0 0" }}>
