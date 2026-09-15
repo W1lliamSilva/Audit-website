@@ -1489,9 +1489,64 @@ type CItem = {
   preview: string;
   kind: "file" | "url";
   payload: string; // dataUrl (file) ou url
+  origBytes?: number; // tamanho original (arquivos)
   result: CompressResult | null;
   loading: boolean;
 };
+
+function loadImg(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const im = new window.Image();
+    im.onload = () => resolve(im);
+    im.onerror = reject;
+    im.src = src;
+  });
+}
+
+// Compressão no navegador (canvas → WebP): sem upload, sem limite de tamanho.
+async function compressDataUrlClient(
+  dataUrl: string,
+  quality: number,
+  maxWidth: number,
+  originalBytes: number
+): Promise<CompressResult> {
+  try {
+    const img = await loadImg(dataUrl);
+    let w = img.naturalWidth || img.width;
+    let h = img.naturalHeight || img.height;
+    if (!w || !h) return { ok: false, error: "Imagem inválida." };
+    if (w > maxWidth) {
+      h = Math.round((h * maxWidth) / w);
+      w = maxWidth;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { ok: false, error: "Canvas indisponível." };
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, "image/webp", quality / 100));
+    if (!blob) return { ok: false, error: "Não foi possível gerar o WebP." };
+    const outDataUrl = await new Promise<string>((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.readAsDataURL(blob);
+    });
+    const compressedBytes = blob.size;
+    return {
+      ok: true,
+      format: "webp",
+      originalBytes,
+      compressedBytes,
+      savedPct: originalBytes > 0 ? Math.round((1 - compressedBytes / originalBytes) * 100) : 0,
+      width: w,
+      height: h,
+      dataUrl: outDataUrl,
+    };
+  } catch {
+    return { ok: false, error: "Não foi possível processar esta imagem." };
+  }
+}
 
 function CompressorView() {
   const [quality, setQuality] = useState(78);
@@ -1501,16 +1556,21 @@ function CompressorView() {
 
   const uid = () => Math.random().toString(36).slice(2);
 
-  async function compressItem(id: string, payload: string, kind: "file" | "url", q: number) {
+  async function compressItem(id: string, payload: string, kind: "file" | "url", q: number, origBytes?: number) {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, loading: true } : it)));
     try {
-      const body = kind === "file" ? { data: payload, quality: q } : { url: payload, quality: q };
-      const res = await fetch("/api/compress", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data: CompressResult = await res.json();
+      let data: CompressResult;
+      if (kind === "file") {
+        // Arquivos são comprimidos no navegador (sem upload → sem limite de tamanho).
+        data = await compressDataUrlClient(payload, q, 1600, origBytes ?? 0);
+      } else {
+        const res = await fetch("/api/compress", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: payload, quality: q }),
+        });
+        data = await res.json();
+      }
       setItems((prev) => prev.map((it) => (it.id === id ? { ...it, result: data, loading: false } : it)));
     } catch {
       setItems((prev) => prev.map((it) => (it.id === id ? { ...it, result: { ok: false, error: "Falha ao comprimir." }, loading: false } : it)));
@@ -1525,9 +1585,9 @@ function CompressorView() {
       reader.onload = () => {
         const dataUrl = String(reader.result);
         const id = uid();
-        const item: CItem = { id, name: file.name, preview: dataUrl, kind: "file", payload: dataUrl, result: null, loading: false };
+        const item: CItem = { id, name: file.name, preview: dataUrl, kind: "file", payload: dataUrl, origBytes: file.size, result: null, loading: true };
         setItems((prev) => [...prev, item]);
-        compressItem(id, dataUrl, "file", quality);
+        compressItem(id, dataUrl, "file", quality, file.size);
       };
       reader.readAsDataURL(file);
     });
@@ -1538,13 +1598,13 @@ function CompressorView() {
     if (!u) return;
     const id = uid();
     const name = (u.split("?")[0].split("/").pop() || u).slice(0, 60);
-    setItems((prev) => [...prev, { id, name, preview: u, kind: "url", payload: u, result: null, loading: false }]);
+    setItems((prev) => [...prev, { id, name, preview: u, kind: "url", payload: u, result: null, loading: true }]);
     compressItem(id, u, "url", quality);
     setUrlInput("");
   }
 
   function recompressAll() {
-    items.forEach((it) => compressItem(it.id, it.payload, it.kind, quality));
+    items.forEach((it) => compressItem(it.id, it.payload, it.kind, quality, it.origBytes));
   }
 
   function removeItem(id: string) {
