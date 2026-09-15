@@ -6,6 +6,7 @@ import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit"
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
 import type { SeoResult, PageSeo } from "@/lib/seo";
+import type { CompressResult } from "@/lib/compress";
 
 function issueKey(it: LinkIssue): string {
   return `${it.kind}|${it.selector}|${it.targetUrl ?? it.href ?? ""}`;
@@ -1028,6 +1029,29 @@ function ImageCard({ image, pageUrl }: { image: ImageIssue; pageUrl: string }) {
   const dims = image.width && image.height ? `${image.width}×${image.height}px` : null;
   const weight = formatBytes(image.bytes);
 
+  const [comp, setComp] = useState<CompressResult | null>(null);
+  const [compLoading, setCompLoading] = useState(false);
+
+  async function compress() {
+    setCompLoading(true);
+    setComp(null);
+    try {
+      const res = await fetch("/api/compress", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: image.src }),
+      });
+      const data: CompressResult = await res.json();
+      setComp(data);
+    } catch {
+      setComp({ ok: false, error: "Falha ao comprimir." });
+    } finally {
+      setCompLoading(false);
+    }
+  }
+
+  const downloadName = (name.replace(/\.[a-z0-9]+$/i, "") || "imagem") + ".webp";
+
   return (
     <div style={{ display: "flex", gap: 16, alignItems: "stretch", padding: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1062,6 +1086,42 @@ function ImageCard({ image, pageUrl }: { image: ImageIssue; pageUrl: string }) {
             <span>Tamanho: {dims ?? "—"}</span>
             {weight && <span>· {weight}</span>}
           </div>
+        </div>
+
+        {/* Compressor */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {!comp || !comp.ok ? (
+            <button
+              type="button"
+              onClick={compress}
+              disabled={compLoading}
+              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: compLoading ? "default" : "pointer" }}
+            >
+              {compLoading ? "Comprimindo…" : "🗜 Comprimir"}
+            </button>
+          ) : null}
+          {comp && comp.ok && (
+            <>
+              <span style={{ fontSize: 13, color: "var(--text-default)" }}>
+                {formatBytes(comp.originalBytes ?? 0)} → <strong>{formatBytes(comp.compressedBytes ?? 0)}</strong>
+                {typeof comp.savedPct === "number" && (
+                  <span style={{ color: comp.savedPct > 0 ? "#16a34a" : "#78736f", marginLeft: 6, fontWeight: 600 }}>
+                    ({comp.savedPct > 0 ? "−" : ""}{Math.abs(comp.savedPct)}%)
+                  </span>
+                )}
+              </span>
+              <a
+                href={comp.dataUrl}
+                download={downloadName}
+                style={{ background: "var(--support-teal-base)", color: "#fff", fontSize: 13, textDecoration: "none", padding: "6px 14px", borderRadius: 8 }}
+              >
+                Baixar WebP
+              </a>
+            </>
+          )}
+          {comp && !comp.ok && (
+            <span style={{ fontSize: 12, color: "#dc2626" }}>{comp.error}</span>
+          )}
         </div>
       </div>
     </div>

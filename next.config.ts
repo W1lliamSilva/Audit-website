@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   // Mantém o Chromium/puppeteer como pacotes externos (não empacotados pelo
   // bundler), essencial para o @sparticuz/chromium funcionar nas funções
   // serverless da Vercel.
-  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
+  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core", "sharp"],
   // Força a inclusão do binário do Chromium (pasta bin com os .br) nas funções
   // que usam o navegador headless — sem isso a Vercel não o traça.
   outputFileTracingIncludes: {
