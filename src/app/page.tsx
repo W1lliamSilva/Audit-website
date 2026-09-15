@@ -1024,32 +1024,22 @@ function formatBytes(bytes: number | null): string | null {
 }
 
 /* ---------- Card de imagem sem alt ---------- */
-function ImageCard({ image, pageUrl }: { image: ImageIssue; pageUrl: string }) {
+function ImageCard({
+  image,
+  pageUrl,
+  comp,
+  compLoading,
+  onCompress,
+}: {
+  image: ImageIssue;
+  pageUrl: string;
+  comp?: CompressResult | null;
+  compLoading?: boolean;
+  onCompress?: () => void;
+}) {
   const name = (image.src.split("?")[0].split("/").pop() || image.src).slice(0, 60);
   const dims = image.width && image.height ? `${image.width}×${image.height}px` : null;
   const weight = formatBytes(image.bytes);
-
-  const [comp, setComp] = useState<CompressResult | null>(null);
-  const [compLoading, setCompLoading] = useState(false);
-
-  async function compress() {
-    setCompLoading(true);
-    setComp(null);
-    try {
-      const res = await fetch("/api/compress", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: image.src }),
-      });
-      const data: CompressResult = await res.json();
-      setComp(data);
-    } catch {
-      setComp({ ok: false, error: "Falha ao comprimir." });
-    } finally {
-      setCompLoading(false);
-    }
-  }
-
   const downloadName = (name.replace(/\.[a-z0-9]+$/i, "") || "imagem") + ".webp";
 
   return (
@@ -1089,11 +1079,12 @@ function ImageCard({ image, pageUrl }: { image: ImageIssue; pageUrl: string }) {
         </div>
 
         {/* Compressor */}
+        {onCompress && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {!comp || !comp.ok ? (
             <button
               type="button"
-              onClick={compress}
+              onClick={onCompress}
               disabled={compLoading}
               style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: compLoading ? "default" : "pointer" }}
             >
@@ -1123,6 +1114,7 @@ function ImageCard({ image, pageUrl }: { image: ImageIssue; pageUrl: string }) {
             <span style={{ fontSize: 12, color: "#dc2626" }}>{comp.error}</span>
           )}
         </div>
+        )}
       </div>
     </div>
   );
@@ -1130,8 +1122,89 @@ function ImageCard({ image, pageUrl }: { image: ImageIssue; pageUrl: string }) {
 
 /* ---------- Tela de Imagens e alt text ---------- */
 function ImagesView({ images, loading }: { images: ImagesResult | null; loading: boolean }) {
+  const [quality, setQuality] = useState(78);
+  const [results, setResults] = useState<Record<number, CompressResult>>({});
+  const [loadingSet, setLoadingSet] = useState<Set<number>>(new Set());
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [zipping, setZipping] = useState(false);
+
+  const imgs = images?.withoutAlt ?? [];
+
+  const compressOne = useCallback(
+    async (i: number, src: string, q: number) => {
+      setLoadingSet((prev) => new Set(prev).add(i));
+      try {
+        const res = await fetch("/api/compress", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: src, quality: q }),
+        });
+        const data: CompressResult = await res.json();
+        setResults((prev) => ({ ...prev, [i]: data }));
+      } catch {
+        setResults((prev) => ({ ...prev, [i]: { ok: false, error: "Falha ao comprimir." } }));
+      } finally {
+        setLoadingSet((prev) => {
+          const n = new Set(prev);
+          n.delete(i);
+          return n;
+        });
+      }
+    },
+    []
+  );
+
+  async function compressAll() {
+    setBatchRunning(true);
+    const indices = imgs.map((_, i) => i).filter((i) => !results[i]?.ok);
+    const CONC = 3;
+    let cursor = 0;
+    async function worker() {
+      while (cursor < indices.length) {
+        const i = indices[cursor++];
+        await compressOne(i, imgs[i].src, quality);
+      }
+    }
+    await Promise.all(Array.from({ length: CONC }, () => worker()));
+    setBatchRunning(false);
+  }
+
+  async function downloadZip() {
+    const ok = Object.entries(results).filter(([, r]) => r.ok && r.dataUrl);
+    if (ok.length === 0) return;
+    setZipping(true);
+    try {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const used = new Set<string>();
+      for (const [idx, r] of ok) {
+        const i = Number(idx);
+        const base = (imgs[i].src.split("?")[0].split("/").pop() || `imagem-${i}`).replace(/\.[a-z0-9]+$/i, "");
+        let fname = `${base}.webp`;
+        let n = 1;
+        while (used.has(fname)) fname = `${base}-${n++}.webp`;
+        used.add(fname);
+        const b64 = (r.dataUrl as string).split(",")[1];
+        zip.file(fname, b64, { base64: true });
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = "imagens-otimizadas.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 2000);
+    } finally {
+      setZipping(false);
+    }
+  }
+
+  const okCount = Object.values(results).filter((r) => r.ok).length;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <h1 style={{ fontFamily: "var(--font-geist-sans)", fontWeight: 500, fontSize: 24, lineHeight: "27px", color: "var(--text-default)", margin: 0 }}>
         Imagens e alt text
       </h1>
@@ -1141,15 +1214,72 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
         <Empty text={images.error} />
       ) : !images ? (
         <Empty text="—" />
-      ) : images.withoutAlt.length === 0 ? (
+      ) : imgs.length === 0 ? (
         <Empty text={`Todas as ${images.total} imagens têm alt text 🎉`} />
       ) : (
         <>
           <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: 0 }}>
-            {images.withoutAlt.length} de {images.total} imagens sem alt text.
+            {imgs.length} de {images.total} imagens sem alt text.
           </p>
-          {images.withoutAlt.map((im, i) => (
-            <ImageCard key={i} image={im} pageUrl={images.pageUrl} />
+
+          {/* Barra de compressão em lote */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              flexWrap: "wrap",
+              padding: "12px 16px",
+              background: "#fff",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 12,
+            }}
+          >
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "var(--text-default)" }}>
+              Qualidade
+              <input
+                type="range"
+                min={30}
+                max={95}
+                step={1}
+                value={quality}
+                onChange={(e) => {
+                  setQuality(Number(e.target.value));
+                  setResults({}); // resultados anteriores ficam obsoletos com nova qualidade
+                }}
+                style={{ accentColor: "var(--support-teal-base)" }}
+              />
+              <span style={{ fontWeight: 600, minWidth: 28 }}>{quality}</span>
+            </label>
+            <button
+              type="button"
+              onClick={compressAll}
+              disabled={batchRunning}
+              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: batchRunning ? "default" : "pointer" }}
+            >
+              {batchRunning ? `Comprimindo… (${okCount}/${imgs.length})` : "🗜 Comprimir todas"}
+            </button>
+            {okCount > 0 && (
+              <button
+                type="button"
+                onClick={downloadZip}
+                disabled={zipping}
+                style={{ background: "var(--support-teal-base)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: zipping ? "default" : "pointer" }}
+              >
+                {zipping ? "Gerando .zip…" : `Baixar tudo (.zip · ${okCount})`}
+              </button>
+            )}
+          </div>
+
+          {imgs.map((im, i) => (
+            <ImageCard
+              key={i}
+              image={im}
+              pageUrl={images.pageUrl}
+              comp={results[i] ?? null}
+              compLoading={loadingSet.has(i)}
+              onCompress={() => compressOne(i, im.src, quality)}
+            />
           ))}
         </>
       )}
