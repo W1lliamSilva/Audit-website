@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
@@ -50,6 +50,24 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AuditResult | null>(null);
   const [active, setActive] = useState("Visão geral");
+
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  useEffect(() => {
+    // Lê a preferência salva na montagem (aplicada antes pelo script anti-flash).
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark" || saved === "light") setTheme(saved);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  const applyTheme = useCallback((t: "light" | "dark") => {
+    setTheme(t);
+    try {
+      localStorage.setItem("theme", t);
+    } catch {}
+  }, []);
 
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [images, setImages] = useState<ImagesResult | null>(null);
@@ -209,7 +227,7 @@ export default function Home() {
             alt="Collateral Partners"
             width={137}
             height={32}
-            style={{ height: 32, width: "auto" }}
+            style={{ height: 32, width: "auto", filter: theme === "dark" ? "brightness(0) invert(1)" : undefined }}
             priority
           />
         </div>
@@ -234,7 +252,7 @@ export default function Home() {
                   cursor: "pointer",
                   padding: 16,
                   borderRadius: "var(--radius-xl)",
-                  background: isActive ? "var(--bg-dark)" : "var(--nav-hover)",
+                  background: isActive ? "var(--nav-active-bg)" : "var(--nav-hover)",
                   display: "flex",
                   flexDirection: "column",
                   gap: 4,
@@ -244,7 +262,7 @@ export default function Home() {
                   style={{
                     fontSize: 14,
                     lineHeight: "22px",
-                    color: isActive ? "#fff" : "var(--text-default)",
+                    color: isActive ? "var(--nav-active-text)" : "var(--text-default)",
                   }}
                 >
                   {item.label}
@@ -254,7 +272,7 @@ export default function Home() {
                     style={{
                       fontSize: 12,
                       lineHeight: "16px",
-                      color: isActive ? "rgba(255,255,255,0.6)" : "var(--text-subtle)",
+                      color: isActive ? "var(--nav-active-sub)" : "var(--text-subtle)",
                     }}
                   >
                     {item.sub}
@@ -264,6 +282,10 @@ export default function Home() {
             );
           })}
         </nav>
+
+        <div style={{ marginTop: "auto", width: "100%" }}>
+          <ThemeToggle theme={theme} onChange={applyTheme} />
+        </div>
       </aside>
 
       {/* Área principal */}
@@ -371,14 +393,14 @@ function AuditEmptyState({ loading, label, view }: { loading: boolean; label: st
   if (loading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "80px 24px" }}>
-        <Image src="/figma/search.svg" alt="" width={48} height={48} style={{ width: 48, height: 48, opacity: 0.6 }} />
+        <Image className="brand-icon" src="/figma/search.svg" alt="" width={48} height={48} style={{ width: 48, height: 48, opacity: 0.6 }} />
         <p style={{ fontSize: 14, color: "var(--text-subtle)" }}>Auditando o site…</p>
       </div>
     );
   }
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "72px 24px", textAlign: "center" }}>
-      <Image src="/figma/search.svg" alt="" width={56} height={56} style={{ width: 56, height: 56 }} priority />
+      <Image className="brand-icon" src="/figma/search.svg" alt="" width={56} height={56} style={{ width: 56, height: 56 }} priority />
       <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
         Site Audit Tool
       </h2>
@@ -412,7 +434,7 @@ function Gauge({
 
   const svg = (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e6e4e1" strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--stroke-light)" strokeWidth={stroke} />
       {loading ? (
         // Spinner indeterminado
         <circle
@@ -420,7 +442,7 @@ function Gauge({
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="#78736f"
+          stroke="var(--text-subtle)"
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={`${c * 0.25} ${c * 0.75}`}
@@ -456,12 +478,12 @@ function Gauge({
         y="47%"
         textAnchor="middle"
         dominantBaseline="middle"
-        style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: score === null && !loading ? 24 : 26, fill: score === null ? "#78736f" : "#000" }}
+        style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: score === null && !loading ? 24 : 26, fill: score === null ? "var(--text-subtle)" : "#000" }}
       >
         {loading ? "" : score === null ? "—" : value}
       </text>
       {!loading && (
-        <text x="50%" y="63%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 10, fill: "#78736f" }}>
+        <text x="50%" y="63%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 10, fill: "var(--text-subtle)" }}>
           /100
         </text>
       )}
@@ -715,13 +737,13 @@ function CategoryView({ category, title }: { category?: Category; title: string 
         {category.checks.map((check) => {
           const meta = STATUS_META[check.status];
           return (
-            <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+            <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
               <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
                 {meta.icon}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
-                <div style={{ color: "rgba(36,35,32,0.7)", fontSize: 14 }}>{check.message}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
                 {check.details && check.details.length > 0 && (
                   <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
                     {check.details.map((d, i) => {
@@ -771,7 +793,7 @@ function LinkIssueCard({
         flexDirection: "column",
         gap: 10,
         padding: 16,
-        background: "#fff",
+        background: "var(--surface-elevated)",
         border: "1px solid var(--border-subtle)",
         borderRadius: 12,
       }}
@@ -965,7 +987,7 @@ function ImageCard({
   const downloadName = (name.replace(/\.[a-z0-9]+$/i, "") || "imagem") + ".webp";
 
   return (
-    <div style={{ display: "flex", gap: 16, alignItems: "stretch", padding: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
+    <div style={{ display: "flex", gap: 16, alignItems: "stretch", padding: 12, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={image.src}
@@ -1018,7 +1040,7 @@ function ImageCard({
               <span style={{ fontSize: 13, color: "var(--text-default)" }}>
                 {formatBytes(comp.originalBytes ?? 0)} → <strong>{formatBytes(comp.compressedBytes ?? 0)}</strong>
                 {typeof comp.savedPct === "number" && (
-                  <span style={{ color: comp.savedPct > 0 ? "#16a34a" : "#78736f", marginLeft: 6, fontWeight: 600 }}>
+                  <span style={{ color: comp.savedPct > 0 ? "#16a34a" : "var(--text-subtle)", marginLeft: 6, fontWeight: 600 }}>
                     ({comp.savedPct > 0 ? "−" : ""}{Math.abs(comp.savedPct)}%)
                   </span>
                 )}
@@ -1152,7 +1174,7 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
               gap: 16,
               flexWrap: "wrap",
               padding: "12px 16px",
-              background: "#fff",
+              background: "var(--surface-elevated)",
               border: "1px solid var(--border-subtle)",
               borderRadius: 12,
             }}
@@ -1311,9 +1333,9 @@ function PerfModal({
               <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 10px" }}>Métricas</h3>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
                 {current.metrics.map((m) => {
-                  const color = m.rating ? RATING_COLOR[m.rating] : "#78736f";
+                  const color = m.rating ? RATING_COLOR[m.rating] : "var(--text-subtle)";
                   return (
-                    <div key={m.id} style={{ background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 12 }}>
+                    <div key={m.id} style={{ background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ width: 9, height: 9, borderRadius: 2, background: color, flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>{m.label}</span>
@@ -1334,7 +1356,7 @@ function PerfModal({
                 </h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {current.opportunities.map((o) => (
-                    <div key={o.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "10px 14px" }}>
+                    <div key={o.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "10px 14px" }}>
                       <span style={{ fontSize: 14, color: "var(--text-default)" }}>{o.title}</span>
                       <span style={{ fontSize: 13, color: "#d97706", whiteSpace: "nowrap", fontWeight: 600 }}>
                         {o.display || `~${(o.savingsMs / 1000).toFixed(1)}s`}
@@ -1457,13 +1479,13 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
                 {current.checks.map((check) => {
                   const meta = STATUS_META[check.status];
                   return (
-                    <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+                    <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
                       <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
                         {meta.icon}
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
-                        <div style={{ color: "rgba(36,35,32,0.7)", fontSize: 14 }}>{check.message}</div>
+                        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
                         {check.details && check.details.length > 0 && (
                           <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
                             {check.details.map((d, i) => <li key={i}>{d}</li>)}
@@ -1667,7 +1689,7 @@ function CompressorView() {
           padding: "28px 16px",
           textAlign: "center",
           cursor: "pointer",
-          background: "#fff",
+          background: "var(--surface-elevated)",
           color: "var(--text-subtle)",
           fontSize: 14,
         }}
@@ -1678,7 +1700,7 @@ function CompressorView() {
       </label>
 
       {/* URL + qualidade + ações */}
-      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", padding: "12px 16px", background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
+      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", padding: "12px 16px", background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1, minWidth: 240 }}>
           <input
             type="text"
@@ -1716,7 +1738,7 @@ function CompressorView() {
             const r = it.result;
             const downloadName = (it.name.replace(/\.[a-z0-9]+$/i, "") || "imagem") + ".webp";
             return (
-              <div key={it.id} style={{ display: "flex", gap: 16, alignItems: "center", padding: 12, background: "#fff", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
+              <div key={it.id} style={{ display: "flex", gap: 16, alignItems: "center", padding: 12, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 12 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={it.preview} alt="" style={{ width: 84, height: 64, objectFit: "cover", borderRadius: 8, background: "var(--bg-light)", flexShrink: 0 }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0.15"; }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1725,7 +1747,7 @@ function CompressorView() {
                     {it.loading ? "Comprimindo…" : r?.ok ? (
                       <>
                         {formatBytes(r.originalBytes ?? 0)} → <strong style={{ color: "var(--text-default)" }}>{formatBytes(r.compressedBytes ?? 0)}</strong>
-                        {typeof r.savedPct === "number" && <span style={{ color: r.savedPct > 0 ? "#16a34a" : "#78736f", marginLeft: 6, fontWeight: 600 }}>({r.savedPct > 0 ? "−" : ""}{Math.abs(r.savedPct)}%)</span>}
+                        {typeof r.savedPct === "number" && <span style={{ color: r.savedPct > 0 ? "#16a34a" : "var(--text-subtle)", marginLeft: 6, fontWeight: 600 }}>({r.savedPct > 0 ? "−" : ""}{Math.abs(r.savedPct)}%)</span>}
                         {r.width && r.height && <span style={{ marginLeft: 8 }}>· {r.width}×{r.height}px</span>}
                       </>
                     ) : r && !r.ok ? <span style={{ color: "#dc2626" }}>{r.error}</span> : "—"}
@@ -1739,6 +1761,74 @@ function CompressorView() {
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Toggle de tema (claro/escuro) ---------- */
+function ThemeToggle({ theme, onChange }: { theme: "light" | "dark"; onChange: (t: "light" | "dark") => void }) {
+  const btn = (t: "light" | "dark", label: string, icon: React.ReactNode) => {
+    const active = theme === t;
+    return (
+      <button
+        type="button"
+        onClick={() => onChange(t)}
+        aria-label={label}
+        aria-pressed={active}
+        title={label}
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          padding: "8px 10px",
+          borderRadius: 999,
+          border: "none",
+          cursor: "pointer",
+          background: active ? "var(--surface-elevated)" : "transparent",
+          color: active ? "var(--text-default)" : "var(--text-subtle)",
+          boxShadow: active ? "0 1px 2px rgba(0,0,0,0.12)" : "none",
+          fontSize: 13,
+        }}
+      >
+        {icon}
+      </button>
+    );
+  };
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 4,
+        padding: 4,
+        borderRadius: 999,
+        background: "var(--nav-hover)",
+        border: "1px solid var(--border-subtle)",
+      }}
+    >
+      {btn(
+        "light",
+        "Tema claro",
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round">
+          <circle cx="12" cy="12" r="4.2" />
+          <line x1="12" y1="2.5" x2="12" y2="5" />
+          <line x1="12" y1="19" x2="12" y2="21.5" />
+          <line x1="2.5" y1="12" x2="5" y2="12" />
+          <line x1="19" y1="12" x2="21.5" y2="12" />
+          <line x1="5.2" y1="5.2" x2="6.9" y2="6.9" />
+          <line x1="17.1" y1="17.1" x2="18.8" y2="18.8" />
+          <line x1="18.8" y1="5.2" x2="17.1" y2="6.9" />
+          <line x1="6.9" y1="17.1" x2="5.2" y2="18.8" />
+        </svg>
+      )}
+      {btn(
+        "dark",
+        "Tema escuro",
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z" />
+        </svg>
       )}
     </div>
   );
