@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/images": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/screenshot": ["./node_modules/@sparticuz/chromium/bin/**"],
+    "/api/linkaudit": ["./node_modules/@sparticuz/chromium/bin/**"],
   },
 };
 

@@ -24,6 +24,8 @@ export type LinkIssueKind = "no-link" | "broken" | "generic-text" | "no-text" | 
 
 export interface LinkIssue {
   kind: LinkIssueKind;
+  /** Severidade (LinkAudit): controla a cor do indicador. */
+  sev?: "error" | "warn";
   /** Rótulo curto do tipo (ex.: "Botão/link sem destino"). */
   label: string;
   /** Texto visível do elemento. */

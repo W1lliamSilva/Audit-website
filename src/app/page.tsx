@@ -7,6 +7,22 @@ import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
 import type { SeoResult, PageSeo } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
+import type { LinkAuditResult, LinkAuditFinding } from "@/lib/linkaudit";
+
+// Converte os achados do LinkAudit para o formato dos cards.
+function findingToIssue(f: LinkAuditFinding): LinkIssue {
+  return {
+    kind: "no-action",
+    sev: f.sev,
+    label: f.typeLabel,
+    text: f.text || "(sem texto)",
+    href: f.href ?? undefined,
+    targetUrl: f.resolved ?? undefined,
+    selector: f.selector,
+    location: f.region,
+    description: f.description,
+  };
+}
 
 function issueKey(it: LinkIssue): string {
   return `${it.kind}|${it.selector}|${it.targetUrl ?? it.href ?? ""}`;
@@ -74,6 +90,8 @@ export default function Home() {
   const [imagesLoading, setImagesLoading] = useState(false);
   const [seo, setSeo] = useState<SeoResult | null>(null);
   const [seoLoading, setSeoLoading] = useState(false);
+  const [linkaudit, setLinkaudit] = useState<LinkAuditResult | null>(null);
+  const [linkauditLoading, setLinkauditLoading] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>("desktop");
   const [perf, setPerf] = useState<Record<Strategy, PerfResult | null>>({
     desktop: null,
@@ -148,6 +166,23 @@ export default function Home() {
     }
   }, []);
 
+  const loadLinkaudit = useCallback(async (u: string) => {
+    setLinkauditLoading(true);
+    try {
+      const res = await fetch("/api/linkaudit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: u }),
+      });
+      const data: LinkAuditResult = await res.json();
+      setLinkaudit(data);
+    } catch {
+      setLinkaudit({ findings: [], pageUrl: u, error: "Falha na análise de links/botões." });
+    } finally {
+      setLinkauditLoading(false);
+    }
+  }, []);
+
   async function runAudit(e: React.FormEvent) {
     e.preventDefault();
     if (!url.trim()) return;
@@ -157,6 +192,7 @@ export default function Home() {
     setPerf({ desktop: null, mobile: null });
     setImages(null);
     setSeo(null);
+    setLinkaudit(null);
     setDismissed(new Set());
     setActive("Visão geral");
     try {
@@ -248,6 +284,9 @@ export default function Home() {
                   setActive(item.label);
                   if (item.view === "seo" && auditedUrl && !seo && !seoLoading) {
                     loadSeo(auditedUrl);
+                  }
+                  if ((item.view === "links" || item.view === "buttons") && auditedUrl && !linkaudit && !linkauditLoading) {
+                    loadLinkaudit(auditedUrl);
                   }
                 }}
                 style={{
@@ -356,22 +395,34 @@ export default function Home() {
                   }}
                 />
               ) : activeItem.view === "links" ? (
-                <LinkIssuesView
-                  title="Links quebrados"
-                  issues={result.linkIssues}
-                  auditedUrl={auditedUrl}
-                  dismissed={dismissed}
-                  onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
-                />
+                linkauditLoading && !linkaudit ? (
+                  <LoadingSection title="Links quebrados" text="Analisando os links do site (renderizando em 3 tamanhos)…" />
+                ) : (
+                  <LinkIssuesView
+                    title="Links quebrados"
+                    issues={[
+                      ...result.linkIssues.filter((i) => i.kind === "broken"),
+                      ...(linkaudit?.findings ?? []).filter((f) => f.kind !== "button").map(findingToIssue),
+                    ]}
+                    auditedUrl={auditedUrl}
+                    dismissed={dismissed}
+                    onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
+                    emptyText={linkaudit?.error ?? "Nenhum problema de link encontrado 🎉"}
+                  />
+                )
               ) : activeItem.view === "buttons" ? (
-                <LinkIssuesView
-                  title="Botões sem ação"
-                  issues={result.buttonIssues}
-                  auditedUrl={auditedUrl}
-                  dismissed={dismissed}
-                  onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
-                  emptyText="Nenhum botão sem ação encontrado 🎉"
-                />
+                linkauditLoading && !linkaudit ? (
+                  <LoadingSection title="Botões sem ação" text="Analisando os botões do site…" />
+                ) : (
+                  <LinkIssuesView
+                    title="Botões sem ação"
+                    issues={(linkaudit?.findings ?? []).filter((f) => f.kind === "button").map(findingToIssue)}
+                    auditedUrl={auditedUrl}
+                    dismissed={dismissed}
+                    onDismiss={(k) => setDismissed((prev) => new Set(prev).add(k))}
+                    emptyText={linkaudit?.error ?? "Nenhum botão sem ação encontrado 🎉"}
+                  />
+                )
               ) : activeItem.view === "images" ? (
                 <ImagesView images={images} loading={imagesLoading} />
               ) : activeItem.view === "seo" ? (
@@ -784,7 +835,8 @@ function LinkIssueCard({
   const [showShot, setShowShot] = useState(false);
   const [shotError, setShotError] = useState(false);
 
-  const dotColor = issue.kind === "broken" ? "#e32d14" : "#e89d01";
+  const dotColor =
+    issue.sev === "error" ? "#e32d14" : issue.sev === "warn" ? "#e89d01" : issue.kind === "broken" ? "#e32d14" : "#e89d01";
   const shotUrl = `/api/screenshot?url=${encodeURIComponent(auditedUrl)}&selector=${encodeURIComponent(issue.selector)}`;
 
   return (
@@ -1810,5 +1862,16 @@ function ThemeToggle({ theme, onChange }: { theme: "light" | "dark"; onChange: (
         </svg>
       )}
     </button>
+  );
+}
+
+function LoadingSection({ title, text }: { title: string; text: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+        {title}
+      </h1>
+      <Empty text={text} />
+    </div>
   );
 }
