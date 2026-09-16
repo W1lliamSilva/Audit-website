@@ -220,6 +220,10 @@ export default function Home() {
             width: "100%",
             paddingBottom: 12,
             borderBottom: "1px solid var(--border-subtle)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
           }}
         >
           <Image
@@ -230,6 +234,7 @@ export default function Home() {
             style={{ height: 32, width: "auto", filter: theme === "dark" ? "brightness(0) invert(1)" : undefined }}
             priority
           />
+          <ThemeToggle theme={theme} onChange={applyTheme} />
         </div>
 
         <nav style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -282,10 +287,6 @@ export default function Home() {
             );
           })}
         </nav>
-
-        <div style={{ marginTop: "auto", width: "100%" }}>
-          <ThemeToggle theme={theme} onChange={applyTheme} />
-        </div>
       </aside>
 
       {/* Área principal */}
@@ -1768,50 +1769,30 @@ function CompressorView() {
 
 /* ---------- Toggle de tema (claro/escuro) ---------- */
 function ThemeToggle({ theme, onChange }: { theme: "light" | "dark"; onChange: (t: "light" | "dark") => void }) {
-  const btn = (t: "light" | "dark", label: string, icon: React.ReactNode) => {
-    const active = theme === t;
-    return (
-      <button
-        type="button"
-        onClick={() => onChange(t)}
-        aria-label={label}
-        aria-pressed={active}
-        title={label}
-        style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 6,
-          padding: "8px 10px",
-          borderRadius: 999,
-          border: "none",
-          cursor: "pointer",
-          background: active ? "var(--surface-elevated)" : "transparent",
-          color: active ? "var(--text-default)" : "var(--text-subtle)",
-          boxShadow: active ? "0 1px 2px rgba(0,0,0,0.12)" : "none",
-          fontSize: 13,
-        }}
-      >
-        {icon}
-      </button>
-    );
-  };
+  const isDark = theme === "dark";
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => onChange(isDark ? "light" : "dark")}
+      aria-label={isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}
+      title={isDark ? "Tema claro" : "Tema escuro"}
       style={{
+        flexShrink: 0,
+        width: 32,
+        height: 32,
         display: "flex",
-        gap: 4,
-        padding: 4,
+        alignItems: "center",
+        justifyContent: "center",
         borderRadius: 999,
-        background: "var(--nav-hover)",
         border: "1px solid var(--border-subtle)",
+        background: "var(--surface-elevated)",
+        color: "var(--text-default)",
+        cursor: "pointer",
       }}
     >
-      {btn(
-        "light",
-        "Tema claro",
-        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round">
+      {isDark ? (
+        // Sol (mostrado no dark → clica p/ voltar ao claro)
+        <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round">
           <circle cx="12" cy="12" r="4.2" />
           <line x1="12" y1="2.5" x2="12" y2="5" />
           <line x1="12" y1="19" x2="12" y2="21.5" />
@@ -1822,14 +1803,12 @@ function ThemeToggle({ theme, onChange }: { theme: "light" | "dark"; onChange: (
           <line x1="18.8" y1="5.2" x2="17.1" y2="6.9" />
           <line x1="6.9" y1="17.1" x2="5.2" y2="18.8" />
         </svg>
-      )}
-      {btn(
-        "dark",
-        "Tema escuro",
-        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+      ) : (
+        // Lua (mostrada no claro → clica p/ ir ao escuro)
+        <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
           <path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z" />
         </svg>
       )}
-    </div>
+    </button>
   );
 }
