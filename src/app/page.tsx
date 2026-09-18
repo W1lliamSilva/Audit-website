@@ -8,6 +8,7 @@ import type { ImageIssue, ImagesResult } from "@/lib/images";
 import type { SeoResult, PageSeo } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
 import type { LinkAuditResult, LinkAuditFinding } from "@/lib/linkaudit";
+import type { InspectResult } from "@/lib/inspect";
 
 // Converte os achados do LinkAudit para o formato dos cards.
 function findingToIssue(f: LinkAuditFinding): LinkIssue {
@@ -57,6 +58,7 @@ const NAV_ITEMS: { label: string; sub?: string; view: string }[] = [
   { label: "Imagens e alt text", sub: "a parte de otimização", view: "images" },
   { label: "SEO", sub: "meta tags, headings, títulos ausentes", view: "seo" },
   { label: "Compressão de imagens", sub: "envie imagens e otimize", view: "compressor" },
+  { label: "Inspeção visual", sub: "cores, fontes e tokens", view: "inspect" },
 ];
 
 export default function Home() {
@@ -333,6 +335,10 @@ export default function Home() {
         {activeItem.view === "compressor" ? (
           <div style={{ padding: 40 }}>
             <CompressorView />
+          </div>
+        ) : activeItem.view === "inspect" ? (
+          <div style={{ padding: 40 }}>
+            <InspectView />
           </div>
         ) : (
           <div style={{ padding: 40, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1872,6 +1878,206 @@ function LoadingSection({ title, text }: { title: string; text: string }) {
         {title}
       </h1>
       <Empty text={text} />
+    </div>
+  );
+}
+
+/* ---------- Aba independente: Inspeção visual (cores/fontes/tokens) ---------- */
+const CATEGORY_LABEL: Record<string, string> = {
+  texto: "Texto",
+  background: "Background",
+  borda: "Borda",
+  sombra: "Sombra",
+  gradiente: "Gradiente",
+};
+
+function InspectView() {
+  const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<InspectResult | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function run(e: React.FormEvent) {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setLoading(true);
+    setData(null);
+    try {
+      const res = await fetch("/api/inspect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      setData(await res.json());
+    } catch {
+      setData({ colors: [], colorGroups: {}, gradients: [], fonts: [], typeScale: [], typeSamples: [], tokens: { colors: {}, fonts: {}, radius: {}, shadows: {}, spacing: {} }, scanned: 0, pageUrl: url, error: "Falha na inspeção." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function copy(text: string, tag: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(tag);
+      setTimeout(() => setCopied((c) => (c === tag ? null : c)), 1400);
+    } catch {}
+  }
+
+  function tokensCss() {
+    const t = data!.tokens;
+    const lines = [":root {"];
+    Object.entries(t.colors).forEach(([k, v]) => lines.push(`  --color-${k}: ${v};`));
+    Object.entries(t.radius).forEach(([k, v]) => lines.push(`  --${k}: ${v};`));
+    Object.entries(t.shadows).forEach(([k, v]) => lines.push(`  --${k}: ${v};`));
+    Object.entries(t.spacing).forEach(([k, v]) => lines.push(`  --${k}: ${v};`));
+    lines.push("}");
+    return lines.join("\n");
+  }
+
+  const swatch = (hex: string, size = 40) => (
+    <span
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 8,
+        background: hex,
+        border: "1px solid var(--border-subtle)",
+        flexShrink: 0,
+        display: "inline-block",
+      }}
+    />
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 940 }}>
+      <div>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+          Inspeção visual
+        </h1>
+        <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: "4px 0 0" }}>
+          Inspeciona um site e extrai as cores (com tokens semânticos), gradientes, fontes e a escala tipográfica.
+        </p>
+      </div>
+
+      <form onSubmit={run} style={{ display: "flex", gap: 10, maxWidth: 520 }}>
+        <input
+          type="text"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="Link do site"
+          style={{ flex: 1, minWidth: 0, background: "var(--bg-lighter)", color: "var(--text-default)", border: "1px solid var(--stroke-light)", borderRadius: 4, padding: "8px 12px", fontSize: 14, outline: "none" }}
+        />
+        <button type="submit" disabled={loading} style={{ background: loading ? "#9d7a2e" : "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 4, padding: "8px 20px", fontSize: 14, cursor: loading ? "default" : "pointer", whiteSpace: "nowrap" }}>
+          {loading ? "Inspecionando…" : "Inspecionar"}
+        </button>
+      </form>
+
+      {loading && <Empty text="Renderizando a página e extraindo cores, fontes e tokens…" />}
+      {data?.error && <Empty text={data.error} />}
+
+      {data && !data.error && (
+        <>
+          <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>
+            {data.scanned} elementos analisados · {data.colors.length} cores · {data.fonts.length} fontes · {data.gradients.length} gradientes
+          </p>
+
+          {/* Tokens de cor */}
+          <Section title="Tokens de cor">
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: -8 }}>
+              <button type="button" onClick={() => copy(tokensCss(), "css")} style={{ background: "var(--support-teal-base)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>
+                {copied === "css" ? "Copiado!" : "Copiar CSS variables"}
+              </button>
+              <button type="button" onClick={() => copy(JSON.stringify(data.tokens, null, 2), "json")} style={{ background: "transparent", color: "var(--text-default)", border: "1px solid var(--stroke-light)", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>
+                {copied === "json" ? "Copiado!" : "Copiar JSON"}
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+              {Object.entries(data.tokens.colors).map(([name, hex]) => (
+                <button key={name} type="button" onClick={() => copy(hex, "t-" + name)} title="Copiar hex"
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: 10, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
+                  {swatch(hex, 34)}
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: "var(--text-default)" }}>{name}</span>
+                    <span style={{ display: "block", fontSize: 12, color: "var(--text-subtle)", fontFamily: "var(--font-geist-mono), monospace" }}>{copied === "t-" + name ? "copiado!" : hex}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Section>
+
+          {/* Cores por categoria */}
+          <Section title="Cores por categoria">
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {Object.keys(data.colorGroups).map((cat) => (
+                <div key={cat}>
+                  <div style={{ fontSize: 12, color: "var(--text-subtle)", marginBottom: 6 }}>{CATEGORY_LABEL[cat] ?? cat}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {data.colorGroups[cat].map((c) => (
+                      <button key={c.value} type="button" onClick={() => copy(c.value, "g-" + cat + c.value)} title={c.value}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px 4px 4px", background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 999, cursor: "pointer" }}>
+                        {swatch(c.value, 22)}
+                        <span style={{ fontSize: 12, color: "var(--text-default)", fontFamily: "var(--font-geist-mono), monospace" }}>{copied === "g-" + cat + c.value ? "copiado!" : c.value}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          {/* Gradientes */}
+          {data.gradients.length > 0 && (
+            <Section title="Gradientes">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+                {data.gradients.map((g, i) => (
+                  <div key={i} style={{ background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ height: 72, background: g.value }} />
+                    <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {g.colors.map((c) => swatch(c, 16))}
+                      </div>
+                      <button type="button" onClick={() => copy("background: " + g.value + ";", "grad" + i)} style={{ background: "transparent", color: "var(--support-teal-base)", border: "1px solid var(--stroke-light)", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>
+                        {copied === "grad" + i ? "Copiado!" : "Copiar CSS"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Fontes */}
+          <Section title="Fontes">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {data.fonts.map((f) => (
+                <div key={f.value} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10 }}>
+                  <span style={{ fontSize: 18, color: "var(--text-default)", fontFamily: `${f.value}, sans-serif` }}>{f.value}</span>
+                  <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>{f.count}×</span>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          {/* Escala tipográfica */}
+          {data.typeSamples.length > 0 && (
+            <Section title="Escala tipográfica">
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {data.typeSamples.map((s: any, i: number) => (
+                  <div key={i} style={{ padding: "10px 14px", background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10 }}>
+                    <div style={{ color: "var(--text-default)", fontFamily: `${s.fontFamily}, sans-serif`, fontSize: s.fontSize, fontWeight: s.fontWeight as any, lineHeight: s.lineHeight, wordBreak: "break-word" }}>
+                      {s.sample || "Aa Bb Cc — 0123456789"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-subtle)", marginTop: 6, fontFamily: "var(--font-geist-mono), monospace" }}>
+                      {s.fontFamily} · {s.fontSize} · {s.fontWeight} · lh {s.lineHeight} · {s.count}×
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+        </>
+      )}
     </div>
   );
 }

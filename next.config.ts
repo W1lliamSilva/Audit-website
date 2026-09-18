@@ -11,6 +11,7 @@ const nextConfig: NextConfig = {
     "/api/images": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/screenshot": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/linkaudit": ["./node_modules/@sparticuz/chromium/bin/**"],
+    "/api/inspect": ["./node_modules/@sparticuz/chromium/bin/**"],
   },
 };
 
