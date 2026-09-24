@@ -186,13 +186,16 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
 }
 
 /**
- * Busca o peso de cada imagem, com concorrência limitada. Tenta primeiro o
- * header Content-Length (via HEAD); quando ausente (comum em CDNs que
- * respondem com transferência em chunks, sem esse header), baixa a imagem
- * via GET e mede o tamanho real do arquivo — assim o peso quase sempre
- * aparece, mesmo quando o servidor não informa o Content-Length. Funciona
- * igual para qualquer formato (png, jpg/jpeg, gif, svg, webp, avif…), já que
- * a medição é sobre os bytes crus da resposta, não sobre o tipo de imagem.
+ * Busca o peso e, quando necessário, a resolução de cada imagem, com
+ * concorrência limitada. Tenta primeiro um HEAD (peso via Content-Length,
+ * sem baixar o arquivo); se o peso ainda faltar (chunked, sem header) OU a
+ * resolução ainda faltar (o navegador não conseguiu — comum em SVG sem
+ * width/height explícitos, ou imagens que só carregaram via lazy-load depois
+ * da varredura do DOM), baixa o arquivo inteiro uma única vez e usa isso para
+ * preencher os dois: o tamanho real do corpo baixado vira o peso, e o
+ * `sharp` lê as dimensões reais dos bytes. Funciona igual para qualquer
+ * formato (png, jpg/jpeg, gif, svg, webp, avif…), já que a medição é sobre
+ * os bytes crus da resposta, não sobre o tipo de imagem.
  *
  * Envia User-Agent + Referer (a própria página auditada), pois muitos CDNs
  * com proteção anti-hotlink (Cloudflare Images, Shopify, imgix, WixStatic…)
@@ -208,59 +211,67 @@ async function addSizes(
   const result: ImageIssue[] = imgs.map((im) => ({ ...im, bytes: null }));
   const queue = result.map((_, i) => i);
 
+  async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      return await fn(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function worker() {
     while (queue.length) {
       const i = queue.shift();
       if (i === undefined) break;
       const src = result[i].src;
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
         try {
-          const head = await fetch(src, { method: "HEAD", headers, signal: controller.signal });
-          const len = head.headers.get("content-length");
-          if (head.ok && len) {
-            result[i].bytes = parseInt(len, 10);
-            continue;
-          }
+          await withTimeout(async (signal) => {
+            const head = await fetch(src, { method: "HEAD", headers, signal });
+            const len = head.headers.get("content-length");
+            if (head.ok && len) result[i].bytes = parseInt(len, 10);
+          });
         } catch {
-          // segue para o GET abaixo
-        } finally {
-          clearTimeout(timer);
+          // HEAD falhou (bloqueado, não suportado…) — segue para o GET abaixo.
         }
 
-        const controller2 = new AbortController();
-        const timer2 = setTimeout(() => controller2.abort(), TIMEOUT_MS);
-        try {
-          const res = await fetch(src, { method: "GET", headers, signal: controller2.signal });
-          const len = res.headers.get("content-length");
-          if (res.ok && len) {
-            result[i].bytes = parseInt(len, 10);
-          } else if (res.ok) {
-            // Sem Content-Length (resposta em chunks): mede o tamanho real do corpo baixado.
-            const ab = await res.arrayBuffer();
-            result[i].bytes = ab.byteLength;
-            // Já que baixamos o arquivo inteiro, aproveita para preencher a
-            // resolução quando o navegador não conseguiu (comum em SVG sem
-            // width/height explícitos, ou imagens que só carregaram via
-            // lazy-load depois da varredura do DOM).
-            if (!result[i].width || !result[i].height) {
-              try {
-                const meta = await sharp(Buffer.from(ab)).metadata();
-                if (meta.width && meta.height) {
-                  result[i].width = meta.width;
-                  result[i].height = meta.height;
-                }
-              } catch {
-                // formato não suportado pelo sharp (ex.: SVG malformado) — ignora
+        const missingWeight = result[i].bytes === null;
+        const missingDims = !result[i].width || !result[i].height;
+        if (missingWeight || missingDims) {
+          try {
+            await withTimeout(async (signal) => {
+              const res = await fetch(src, { method: "GET", headers, signal });
+              if (!res.ok) return;
+              const len = res.headers.get("content-length");
+              if (missingWeight && len) {
+                result[i].bytes = parseInt(len, 10);
               }
-            }
+              // Precisa dos bytes crus tanto para medir o peso sem
+              // Content-Length quanto para ler a resolução via sharp.
+              if ((missingWeight && !len) || missingDims) {
+                const ab = await res.arrayBuffer();
+                if (result[i].bytes === null) result[i].bytes = ab.byteLength;
+                if (missingDims) {
+                  try {
+                    const meta = await sharp(Buffer.from(ab)).metadata();
+                    if (meta.width && meta.height) {
+                      result[i].width = meta.width;
+                      result[i].height = meta.height;
+                    }
+                  } catch {
+                    // formato não suportado pelo sharp (ex.: SVG malformado) — ignora
+                  }
+                }
+              }
+            });
+          } catch {
+            // GET também falhou — peso e/ou resolução ficam como estavam (null/0).
           }
-        } finally {
-          clearTimeout(timer2);
         }
       } catch {
-        // ignora — bytes fica null
+        // ignora — bytes/width/height ficam como estavam
       }
     }
   }

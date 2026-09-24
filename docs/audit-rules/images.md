@@ -31,10 +31,26 @@ JavaScript não aparecem na análise estática do HTML.
 4. Filtra como **problema** as imagens onde:
    - `alt` está ausente **ou** é string vazia/só espaços, **e**
    - existe `src` **e** o `src` não é uma data URI (`data:...`).
-5. Para cada imagem problemática, tenta obter o peso do arquivo
-   (`Content-Length`) via `HEAD` (fallback para `GET` se `HEAD` falhar ou não
-   retornar o header), com `CONCURRENCY = 6` e timeout de 6s por imagem —
-   falha ao obter o tamanho não é erro fatal, o campo `bytes` fica `null`.
+5. Para cada imagem problemática, `addSizes` busca **peso** (bytes do
+   arquivo) e **resolução** (largura×altura em px) — os dois exibidos
+   separadamente na UI como "Peso:" e "Resolução:", já que servem a decisões
+   diferentes (peso alto → comprimir; resolução muito maior que o exibido em
+   tela → redimensionar):
+   - Tenta primeiro um `HEAD` para pegar o peso via `Content-Length`, sem
+     baixar o arquivo.
+   - Se o peso não veio (servidor não manda `Content-Length`, ou o `HEAD`
+     falhou/foi bloqueado) **ou** a resolução ainda está faltando (o
+     navegador não conseguiu — comum em SVG sem `width`/`height` explícitos,
+     ou imagem que só carregou via lazy-load depois da varredura do DOM),
+     baixa o arquivo inteiro **uma única vez** via `GET` e usa isso para
+     preencher os dois: o tamanho do corpo baixado vira o peso, e o `sharp`
+     lê as dimensões reais dos bytes.
+   - `CONCURRENCY = 6`, timeout de 8s por tentativa (HEAD e GET contam
+     separado). Falha em ambos não é erro fatal — `bytes` fica `null` e
+     `width`/`height` ficam `0`, exibidos como "—" na UI.
+   - As requisições enviam `User-Agent` e `Referer` (a própria página
+     auditada), pois CDNs com proteção anti-hotlink (Cloudflare Images,
+     Shopify, imgix, WixStatic…) bloqueiam pedidos sem esses headers.
 
 Diferença chave em relação a `img-alt`: aqui `alt=""` **conta como
 problema** (é tratado como "sem alt"), diferente da checagem estática que

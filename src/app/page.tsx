@@ -1105,10 +1105,14 @@ function ImageCard({
             <Pill text={image.location} />
           </div>
 
-          {/* Tamanho da imagem */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: 13, color: "var(--text-subtle)" }}>
-            <span>Tamanho: {dims ?? "—"}</span>
-            {weight && <span>· {weight}</span>}
+          {/* Peso (arquivo) e resolução (pixels) — separados para decidir o que otimizar */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", fontSize: 13, color: "var(--text-subtle)" }}>
+            <span>
+              Peso: <strong style={{ color: "var(--text-default)", fontWeight: 600 }}>{weight ?? "—"}</strong>
+            </span>
+            <span>
+              Resolução: <strong style={{ color: "var(--text-default)", fontWeight: 600 }}>{dims ?? "—"}</strong>
+            </span>
           </div>
         </div>
 
