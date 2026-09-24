@@ -45,12 +45,20 @@ JavaScript não aparecem na análise estática do HTML.
      baixa o arquivo inteiro **uma única vez** via `GET` e usa isso para
      preencher os dois: o tamanho do corpo baixado vira o peso, e o `sharp`
      lê as dimensões reais dos bytes.
-   - `CONCURRENCY = 6`, timeout de 8s por tentativa (HEAD e GET contam
+   - `CONCURRENCY = 6`, timeout de 12s por tentativa (HEAD e GET contam
      separado). Falha em ambos não é erro fatal — `bytes` fica `null` e
      `width`/`height` ficam `0`, exibidos como "—" na UI.
    - As requisições enviam `User-Agent` e `Referer` (a própria página
      auditada), pois CDNs com proteção anti-hotlink (Cloudflare Images,
      Shopify, imgix, WixStatic…) bloqueiam pedidos sem esses headers.
+   - Quando o peso não é obtido, `weightError` guarda o motivo (`HTTP 403`,
+     `HTTP 404`, `timeout`, `erro de rede`) e a UI mostra isso ao lado do
+     "—" (ex.: "Peso: — (HTTP 403)") em vez de um traço mudo — importante
+     porque a causa muda a decisão: imagem bloqueada/quebrada não é "para
+     comprimir", é para investigar ou remover. Um sucesso numa tentativa
+     seguinte sempre limpa o motivo de uma tentativa anterior que falhou
+     (ex.: `HEAD` rejeitado com 405 seguido de `GET` bem-sucedido não deixa
+     `weightError` nenhum).
 
 Diferença chave em relação a `img-alt`: aqui `alt=""` **conta como
 problema** (é tratado como "sem alt"), diferente da checagem estática que

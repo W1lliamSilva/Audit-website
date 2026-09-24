@@ -16,7 +16,7 @@ import { Atom } from "loading-dev";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
-import type { SeoResult, PageSeo, HeadingItem, HeadingIssue, ScanError, ScanErrorKind } from "@/lib/seo";
+import type { SeoResult, PageSeo, HeadingItem, HeadingIssue, ScanError, ScanErrorKind, SpellingIssue } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
 import type { LinkAuditResult, LinkAuditFinding } from "@/lib/linkaudit";
 import type { InspectResult } from "@/lib/inspect";
@@ -1109,6 +1109,11 @@ function ImageCard({
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", fontSize: 13, color: "var(--text-subtle)" }}>
             <span>
               Peso: <strong style={{ color: "var(--text-default)", fontWeight: 600 }}>{weight ?? "—"}</strong>
+              {!weight && image.weightError && (
+                <span style={{ color: "#dc2626", marginLeft: 6 }} title="Não foi possível baixar a imagem para medir o peso.">
+                  ({image.weightError})
+                </span>
+              )}
             </span>
             <span>
               Resolução: <strong style={{ color: "var(--text-default)", fontWeight: 600 }}>{dims ?? "—"}</strong>
@@ -1489,7 +1494,7 @@ function pageLabel(url: string): string {
 
 function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) {
   const [tab, setTab] = useState(0);
-  const [subTab, setSubTab] = useState<"checks" | "headings" | "scan-errors">("checks");
+  const [subTab, setSubTab] = useState<"checks" | "headings" | "spelling" | "scan-errors">("checks");
 
   if (loading) {
     return (
@@ -1584,6 +1589,10 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
                   label: `Estrutura de headings${current.headingIssues.length > 0 ? ` (${current.headingIssues.length})` : ""}`,
                 },
                 {
+                  key: "spelling",
+                  label: `Erros de digitação${current.spellingIssues.length > 0 ? ` (${current.spellingIssues.length})` : ""}`,
+                },
+                {
                   key: "scan-errors",
                   label: `Erros de digitalização${scanErrorPages.length > 0 ? ` (${scanErrorPages.length})` : ""}`,
                 },
@@ -1644,11 +1653,60 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
                 );
               })}
             </div>
-          ) : (
+          ) : subTab === "headings" ? (
             <HeadingsTree headings={current.headings} issues={current.headingIssues} />
+          ) : (
+            <SpellingIssuesView issues={current.spellingIssues} />
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Erros de digitação (typos, dicionário em inglês) ---------- */
+function SpellingIssuesView({ issues }: { issues: SpellingIssue[] }) {
+  if (issues.length === 0) {
+    return <Empty text="Nenhum erro de digitação encontrado (dicionário em inglês) 🎉" />;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>
+        Checagem contra um dicionário em inglês. Nomes próprios, marcas e siglas (capitalizados) não são
+        verificados — foco em palavras minúsculas, para reduzir falso positivo. Revise as sugestões antes de aplicar.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {issues.map((issue, i) => (
+          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: 100,
+                  color: "#fff",
+                  background: "#dc2626",
+                }}
+              >
+                {issue.word}
+              </span>
+              {issue.suggestions.length > 0 && (
+                <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>
+                  sugestão: {issue.suggestions.map((s, k) => (
+                    <span key={s}>
+                      {k > 0 && ", "}
+                      <strong style={{ color: "var(--text-default)" }}>{s}</strong>
+                    </span>
+                  ))}
+                </span>
+              )}
+              <Pill text={issue.location} />
+            </div>
+            <p style={{ margin: 0, fontSize: 14, color: "var(--text-muted)" }}>{issue.context}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

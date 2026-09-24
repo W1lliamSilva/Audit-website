@@ -4,6 +4,9 @@
 
 import * as cheerio from "cheerio";
 import type { CheckResult } from "./audit";
+import { findSpellingIssues, type SpellingIssue } from "./spelling";
+
+export type { SpellingIssue } from "./spelling";
 
 const USER_AGENT =
   "Mozilla/5.0 (compatible; SiteAuditTool/1.0; +https://github.com/W1lliamSilva/Audit-website)";
@@ -50,6 +53,8 @@ export interface PageSeo {
   headings: HeadingItem[];
   /** Problemas de hierarquia (níveis pulados, h1 duplicado/ausente, heading vazio). */
   headingIssues: HeadingIssue[];
+  /** Palavras sinalizadas por erro de digitação (dicionário em inglês). */
+  spellingIssues: SpellingIssue[];
   /** Detalhe estruturado de por que a página não pôde ser digitalizada (quando houve falha). */
   scanError?: ScanError;
   error?: string;
@@ -208,12 +213,13 @@ function analyseHeadings(headings: HeadingItem[]): HeadingIssue[] {
   return issues;
 }
 
-function seoChecksFromHtml(html: string): {
+async function seoChecksFromHtml(html: string): Promise<{
   checks: CheckResult[];
   totals: PageSeo["totals"];
   headings: HeadingItem[];
   headingIssues: HeadingIssue[];
-} {
+  spellingIssues: SpellingIssue[];
+}> {
   const $ = cheerio.load(html);
   const checks: CheckResult[] = [];
 
@@ -252,7 +258,8 @@ function seoChecksFromHtml(html: string): {
   };
   const headings = extractHeadings($);
   const headingIssues = analyseHeadings(headings);
-  return { checks, totals, headings, headingIssues };
+  const spellingIssues = await findSpellingIssues(html);
+  return { checks, totals, headings, headingIssues, spellingIssues };
 }
 
 export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
@@ -294,13 +301,14 @@ export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
           totals: { pass: 0, warn: 0, fail: 0 },
           headings: [],
           headingIssues: [],
+          spellingIssues: [],
           scanError: scanError ?? { kind: "network-error", message: "Não foi possível carregar a página." },
           error: scanError?.message ?? "Não foi possível carregar a página.",
         };
         continue;
       }
-      const { checks, totals, headings, headingIssues } = seoChecksFromHtml(html);
-      pages[i] = { url: pageUrl, checks, totals, headings, headingIssues };
+      const { checks, totals, headings, headingIssues, spellingIssues } = await seoChecksFromHtml(html);
+      pages[i] = { url: pageUrl, checks, totals, headings, headingIssues, spellingIssues };
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));

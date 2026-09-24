@@ -16,6 +16,8 @@ export interface ImageIssue {
   width: number;
   height: number;
   bytes: number | null; // peso do arquivo (Content-Length), quando disponível
+  /** Por que `bytes` ficou null (ex.: "HTTP 403", "timeout", "erro de rede"). */
+  weightError?: string;
   selector: string;
   location: string;
 }
@@ -206,7 +208,7 @@ async function addSizes(
   pageUrl: string
 ): Promise<ImageIssue[]> {
   const CONCURRENCY = 6;
-  const TIMEOUT_MS = 8000;
+  const TIMEOUT_MS = 12000;
   const headers = { "user-agent": USER_AGENT, referer: pageUrl, accept: "image/*,*/*;q=0.8" };
   const result: ImageIssue[] = imgs.map((im) => ({ ...im, bytes: null }));
   const queue = result.map((_, i) => i);
@@ -221,20 +223,34 @@ async function addSizes(
     }
   }
 
+  function reasonFromError(err: unknown): string {
+    return err instanceof Error && err.name === "AbortError" ? "timeout" : "erro de rede";
+  }
+
   async function worker() {
     while (queue.length) {
       const i = queue.shift();
       if (i === undefined) break;
       const src = result[i].src;
+      // Motivo de por que o peso não foi obtido — só vira `weightError` no
+      // final se `bytes` continuar null (uma tentativa seguinte que dá certo
+      // sempre limpa o motivo de uma tentativa anterior que falhou).
+      let reason: string | null = null;
       try {
         try {
           await withTimeout(async (signal) => {
             const head = await fetch(src, { method: "HEAD", headers, signal });
             const len = head.headers.get("content-length");
-            if (head.ok && len) result[i].bytes = parseInt(len, 10);
+            if (head.ok && len) {
+              result[i].bytes = parseInt(len, 10);
+            } else if (!head.ok) {
+              // Muitos servidores rejeitam HEAD (405) mesmo aceitando GET —
+              // não é definitivo ainda, só um candidato a motivo.
+              reason = `HTTP ${head.status}`;
+            }
           });
-        } catch {
-          // HEAD falhou (bloqueado, não suportado…) — segue para o GET abaixo.
+        } catch (err) {
+          reason = reasonFromError(err);
         }
 
         const missingWeight = result[i].bytes === null;
@@ -243,7 +259,11 @@ async function addSizes(
           try {
             await withTimeout(async (signal) => {
               const res = await fetch(src, { method: "GET", headers, signal });
-              if (!res.ok) return;
+              if (!res.ok) {
+                reason = `HTTP ${res.status}`;
+                return;
+              }
+              reason = null; // GET respondeu OK — descarta qualquer motivo do HEAD.
               const len = res.headers.get("content-length");
               if (missingWeight && len) {
                 result[i].bytes = parseInt(len, 10);
@@ -266,12 +286,15 @@ async function addSizes(
                 }
               }
             });
-          } catch {
-            // GET também falhou — peso e/ou resolução ficam como estavam (null/0).
+          } catch (err) {
+            reason = reasonFromError(err);
           }
         }
       } catch {
         // ignora — bytes/width/height ficam como estavam
+      }
+      if (result[i].bytes === null) {
+        result[i].weightError = reason ?? "peso indisponível";
       }
     }
   }

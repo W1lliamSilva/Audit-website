@@ -15,6 +15,7 @@ Cada arquivo corresponde a uma categoria/feature do produto:
 | [links-buttons.md](links-buttons.md) | Links e botões (auditoria básica) | [`src/lib/audit.ts`](../../src/lib/audit.ts) |
 | [linkaudit.md](linkaudit.md) | LinkAudit avançado (multi-viewport) | [`src/lib/linkaudit.ts`](../../src/lib/linkaudit.ts), [`src/lib/linkaudit-core-b64.ts`](../../src/lib/linkaudit-core-b64.ts) |
 | [performance.md](performance.md) | Performance (PageSpeed/Lighthouse) | [`src/lib/performance.ts`](../../src/lib/performance.ts) |
+| [spelling.md](spelling.md) | Erros de digitação (typos, dicionário em inglês) | [`src/lib/spelling.ts`](../../src/lib/spelling.ts) |
 
 ## Convenções gerais
 
