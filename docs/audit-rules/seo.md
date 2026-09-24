@@ -47,15 +47,44 @@ sobre `h2`–`h6` também, e sobre a página inteira, não só o título.
 ## Descoberta de páginas (multi-page, `getSeoForPages`)
 
 1. Tenta `/sitemap.xml`, depois `/sitemap_index.xml`.
-   - Se for um sitemap-index, segue para o **primeiro** sitemap filho listado
-     (`<sitemap><loc>`) e lê as URLs dele.
+   - Se for um sitemap-index: no modo normal, segue só para o **primeiro**
+     sitemap filho listado; no modo "site inteiro" (`fullSite`, ver abaixo),
+     segue para **todos** os filhos, até `MAX_CHILD_SITEMAPS = 50` — sites
+     grandes costumam dividir o sitemap em vários arquivos (ex.: um por 5000
+     URLs), e ignorar os demais deixaria a maior parte do site de fora.
 2. Se não achar nada no sitemap, cai para o fallback: extrai links internos
    (`<a href>` com mesmo host) a partir do HTML da home.
 3. A URL auditada é sempre incluída e colocada primeiro; a lista final é
-   limitada a `MAX_PAGES = 10` páginas.
+   limitada a `MAX_PAGES = 10` páginas no modo normal, ou
+   `MAX_PAGES_FULL_SITE = 500` no modo "site inteiro" (teto de segurança
+   contra sitemaps mal configurados, não um limite de produto — a imensa
+   maioria dos sites reais tem bem menos que 500 páginas).
 4. Cada página é buscada e checada em paralelo, com `CONCURRENCY = 5` e
    timeout de `FETCH_TIMEOUT = 12000` ms por requisição. Falha ao carregar
    uma página não interrompe as demais — ver "Erros de digitalização" abaixo.
+
+## Modo "site inteiro" (toggle na UI)
+
+Por padrão, a auditoria de SEO cobre só as 10 primeiras páginas descobertas
+(rápido, seguro). Marcando "Auditar o site inteiro", a rota `/api/seo` passa
+`fullSite: true` para `getSeoForPages`, que:
+
+- segue todos os sitemaps filhos (ver acima) e sobe o teto de páginas para
+  `MAX_PAGES_FULL_SITE`;
+- ainda assim, roda dentro de um **orçamento de tempo interno**
+  (`SEO_TIME_BUDGET_MS = 270_000`, 270s), com margem de segurança abaixo do
+  `maxDuration = 300` da rota. Ao se aproximar do limite, o rastreamento para
+  de auditar novas páginas e devolve o que já foi processado até ali, em vez
+  de a função ser encerrada de repente e o usuário não ver nada.
+- `SeoResult.truncated` fica `true` quando nem todas as páginas descobertas
+  foram auditadas (por causa do teto de páginas OU do orçamento de tempo);
+  `SeoResult.discoveredCount` guarda quantas URLs foram descobertas no total.
+  A UI mostra um aviso com "X de Y páginas descobertas foram auditadas"
+  quando isso acontece.
+
+Importante: em planos de hospedagem sem suporte a execuções longas (ex.:
+Vercel Hobby), a plataforma pode encerrar a função antes mesmo dos 300s
+configurados — o orçamento de tempo interno reduz o risco, mas não elimina.
 
 ## Erros de digitalização (multi-page, aba "Erros de digitalização")
 

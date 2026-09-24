@@ -103,6 +103,7 @@ export default function Home() {
   const [imagesLoading, setImagesLoading] = useState(false);
   const [seo, setSeo] = useState<SeoResult | null>(null);
   const [seoLoading, setSeoLoading] = useState(false);
+  const [seoFullSite, setSeoFullSite] = useState(false);
   const [linkaudit, setLinkaudit] = useState<LinkAuditResult | null>(null);
   const [linkauditLoading, setLinkauditLoading] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>("desktop");
@@ -162,13 +163,13 @@ export default function Home() {
     }
   }, []);
 
-  const loadSeo = useCallback(async (u: string) => {
+  const loadSeo = useCallback(async (u: string, fullSite: boolean) => {
     setSeoLoading(true);
     try {
       const res = await fetch("/api/seo", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: u }),
+        body: JSON.stringify({ url: u, fullSite }),
       });
       const data: SeoResult = await res.json();
       setSeo(data);
@@ -205,6 +206,7 @@ export default function Home() {
     setPerf({ desktop: null, mobile: null });
     setImages(null);
     setSeo(null);
+    setSeoFullSite(false);
     setLinkaudit(null);
     setDismissed(new Set());
     setActive("Visão geral");
@@ -297,7 +299,7 @@ export default function Home() {
                 onClick={() => {
                   setActive(item.label);
                   if (item.view === "seo" && auditedUrl && !seo && !seoLoading) {
-                    loadSeo(auditedUrl);
+                    loadSeo(auditedUrl, seoFullSite);
                   }
                   if ((item.view === "links" || item.view === "buttons") && auditedUrl && !linkaudit && !linkauditLoading) {
                     loadLinkaudit(auditedUrl);
@@ -456,7 +458,15 @@ export default function Home() {
               ) : activeItem.view === "images" ? (
                 <ImagesView images={images} loading={imagesLoading} />
               ) : activeItem.view === "seo" ? (
-                <SeoView seo={seo} loading={seoLoading} />
+                <SeoView
+                  seo={seo}
+                  loading={seoLoading}
+                  fullSite={seoFullSite}
+                  onToggleFullSite={(next) => {
+                    setSeoFullSite(next);
+                    if (auditedUrl) loadSeo(auditedUrl, next);
+                  }}
+                />
               ) : (
                 <CategoryView
                   category={result.categories.find((c) => c.id === activeItem.view)}
@@ -1492,23 +1502,62 @@ function pageLabel(url: string): string {
   }
 }
 
-function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) {
+function SeoView({
+  seo,
+  loading,
+  fullSite,
+  onToggleFullSite,
+}: {
+  seo: SeoResult | null;
+  loading: boolean;
+  fullSite: boolean;
+  onToggleFullSite: (next: boolean) => void;
+}) {
   const [tab, setTab] = useState(0);
   const [subTab, setSubTab] = useState<"checks" | "headings" | "spelling" | "scan-errors">("checks");
+
+  const fullSiteToggle = (
+    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-subtle)", cursor: loading ? "default" : "pointer" }}>
+      <input
+        type="checkbox"
+        checked={fullSite}
+        disabled={loading}
+        onChange={(e) => onToggleFullSite(e.target.checked)}
+        style={{ accentColor: "var(--support-teal-base)", width: 16, height: 16 }}
+      />
+      Auditar o site inteiro (todas as páginas do sitemap, não só as 10 primeiras)
+    </label>
+  );
 
   if (loading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
-        <LoadingBlock text="Descobrindo e auditando as páginas do site…" />
+        {fullSiteToggle}
+        <LoadingBlock
+          text={
+            fullSite
+              ? "Descobrindo e auditando o site inteiro… isso pode demorar bastante em sites grandes."
+              : "Descobrindo e auditando as páginas do site…"
+          }
+        />
       </div>
     );
   }
-  if (!seo) return <Empty text="—" />;
+  if (!seo) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        {fullSiteToggle}
+        <Empty text="—" />
+      </div>
+    );
+  }
   if (seo.error) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
+        {fullSiteToggle}
         <Empty text={seo.error} />
       </div>
     );
@@ -1527,11 +1576,24 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
-        <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: "4px 0 0" }}>
-          {pages.length} página{pages.length !== 1 ? "s" : ""} · descobertas via {seo.source === "sitemap" ? "sitemap.xml" : "links internos"}
+        <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>
+          {pages.length} página{pages.length !== 1 ? "s" : ""} auditada{pages.length !== 1 ? "s" : ""}
+          {typeof seo.discoveredCount === "number" && seo.discoveredCount > pages.length
+            ? ` de ${seo.discoveredCount} descobertas`
+            : ""}
+          {" · descobertas via "}
+          {seo.source === "sitemap" ? "sitemap.xml" : "links internos"}
         </p>
+        {fullSiteToggle}
+        {seo.truncated && (
+          <p style={{ fontSize: 13, color: "#b45309", margin: 0, background: "rgba(217,119,6,0.1)", padding: "8px 12px", borderRadius: 8 }}>
+            ⚠ Análise interrompida antes de cobrir o site inteiro (limite de páginas ou de tempo da auditoria) —{" "}
+            {pages.length} de {seo.discoveredCount ?? pages.length} página{seo.discoveredCount !== 1 ? "s" : ""} descoberta
+            {seo.discoveredCount !== 1 ? "s" : ""} foram auditadas.
+          </p>
+        )}
       </div>
 
       {/* Abas de páginas */}

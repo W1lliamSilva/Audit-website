@@ -59,6 +59,13 @@ JavaScript não aparecem na análise estática do HTML.
      seguinte sempre limpa o motivo de uma tentativa anterior que falhou
      (ex.: `HEAD` rejeitado com 405 seguido de `GET` bem-sucedido não deixa
      `weightError` nenhum).
+   - `Content-Length: 0` **não** é aceito como peso válido (`parsePositiveLength`
+     exige um valor estritamente positivo) — alguns CDNs respondem assim no
+     `HEAD` sem calcular o tamanho real. Um "0" aceito ingenuamente vira,
+     silenciosamente, um "peso indisponível" na UI (`formatBytes` trata
+     `bytes <= 0` como nulo) — sem cair no fallback de `GET`, e sem nenhum
+     `weightError` explicando por quê. Tratar 0 como "ainda não sei" (e
+     seguir para o `GET`) evita esse "—" mudo e enganoso.
 
 Diferença chave em relação a `img-alt`: aqui `alt=""` **conta como
 problema** (é tratado como "sem alt"), diferente da checagem estática que

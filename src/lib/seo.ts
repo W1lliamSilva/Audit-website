@@ -11,8 +11,21 @@ export type { SpellingIssue } from "./spelling";
 const USER_AGENT =
   "Mozilla/5.0 (compatible; SiteAuditTool/1.0; +https://github.com/W1lliamSilva/Audit-website)";
 const MAX_PAGES = 10;
+// Teto de segurança para o modo "site inteiro" — não é um limite de produto
+// (a imensa maioria dos sites tem bem menos páginas que isso), é uma proteção
+// contra sitemaps mal configurados (loops, duplicatas em massa) que criariam
+// uma lista de URLs sem fim.
+const MAX_PAGES_FULL_SITE = 500;
+// Sitemap-index: quantos sitemaps filhos seguir no modo "site inteiro"
+// (no modo normal, capado em 10 páginas, só o primeiro já basta).
+const MAX_CHILD_SITEMAPS = 50;
 const FETCH_TIMEOUT = 12000;
 const CONCURRENCY = 5;
+// Orçamento de tempo interno para o rastreamento completo, com margem de
+// segurança abaixo do `maxDuration` da rota (300s) — ao chegar perto do
+// limite, para de auditar novas páginas e devolve o que já foi processado,
+// em vez de a função ser encerrada de repente e o usuário não ver nada.
+const SEO_TIME_BUDGET_MS = 270_000;
 
 export interface HeadingItem {
   /** 1–6, correspondendo a h1–h6. */
@@ -60,9 +73,22 @@ export interface PageSeo {
   error?: string;
 }
 
+export interface SeoOptions {
+  /** Quando true, ignora o teto padrão de 10 páginas e segue o sitemap inteiro (até `MAX_PAGES_FULL_SITE`). */
+  fullSite?: boolean;
+}
+
 export interface SeoResult {
   pages: PageSeo[];
   source: "sitemap" | "links";
+  /** Quantas URLs foram descobertas no total, antes de qualquer corte. */
+  discoveredCount?: number;
+  /**
+   * true quando nem todas as URLs descobertas foram auditadas — por causa do
+   * teto de páginas (`MAX_PAGES`/`MAX_PAGES_FULL_SITE`) ou do orçamento de
+   * tempo (`SEO_TIME_BUDGET_MS`).
+   */
+  truncated?: boolean;
   error?: string;
 }
 
@@ -117,8 +143,14 @@ async function fetchText(url: string, accept = "text/html"): Promise<string | nu
   return (await fetchPage(url, accept)).html;
 }
 
-/** Lê URLs de um sitemap (suporta sitemap index apontando para outros sitemaps). */
-async function fromSitemap(base: URL): Promise<string[]> {
+/**
+ * Lê URLs de um sitemap (suporta sitemap index apontando para outros
+ * sitemaps). No modo normal (capado em `MAX_PAGES`), só o primeiro sitemap
+ * filho já basta; no modo "site inteiro" (`allChildren`), sites grandes
+ * costumam dividir o sitemap em vários arquivos (ex.: um por 5000 URLs), e
+ * ignorar os demais deixaria a maior parte do site de fora.
+ */
+async function fromSitemap(base: URL, opts: { allChildren?: boolean } = {}): Promise<string[]> {
   const candidates = [
     new URL("/sitemap.xml", base).toString(),
     new URL("/sitemap_index.xml", base).toString(),
@@ -127,15 +159,17 @@ async function fromSitemap(base: URL): Promise<string[]> {
     const xml = await fetchText(sm, "application/xml,text/xml");
     if (!xml) continue;
     const $ = cheerio.load(xml, { xmlMode: true });
-    // Sitemap index → pega o primeiro sitemap filho.
     const childSitemaps = $("sitemap > loc").map((_, el) => $(el).text().trim()).get();
     if (childSitemaps.length > 0) {
-      const childXml = await fetchText(childSitemaps[0], "application/xml,text/xml");
-      if (childXml) {
+      const toFetch = opts.allChildren ? childSitemaps.slice(0, MAX_CHILD_SITEMAPS) : childSitemaps.slice(0, 1);
+      const urls: string[] = [];
+      for (const childUrl of toFetch) {
+        const childXml = await fetchText(childUrl, "application/xml,text/xml");
+        if (!childXml) continue;
         const $c = cheerio.load(childXml, { xmlMode: true });
-        const urls = $c("url > loc").map((_, el) => $c(el).text().trim()).get();
-        if (urls.length) return urls;
+        urls.push(...$c("url > loc").map((_, el) => $c(el).text().trim()).get());
       }
+      if (urls.length) return urls;
     }
     const urls = $("url > loc").map((_, el) => $(el).text().trim()).get();
     if (urls.length) return urls;
@@ -262,7 +296,7 @@ async function seoChecksFromHtml(html: string): Promise<{
   return { checks, totals, headings, headingIssues, spellingIssues };
 }
 
-export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
+export async function getSeoForPages(rawUrl: string, opts: SeoOptions = {}): Promise<SeoResult> {
   const url = normalizeUrl(rawUrl);
   let base: URL;
   try {
@@ -274,7 +308,7 @@ export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
   // 1. Descobrir páginas
   let urls: string[] = [];
   let source: "sitemap" | "links" = "sitemap";
-  urls = await fromSitemap(base);
+  urls = await fromSitemap(base, { allChildren: opts.fullSite });
   if (urls.length === 0) {
     source = "links";
     const home = await fetchText(url);
@@ -282,14 +316,23 @@ export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
     else urls = [url];
   }
 
-  // Garante a URL auditada como primeira e limita a quantidade.
-  const ordered = [url, ...urls.filter((u) => u !== url)].slice(0, MAX_PAGES);
+  // Garante a URL auditada como primeira; aplica o teto (10 no modo normal,
+  // até MAX_PAGES_FULL_SITE no modo "site inteiro" — ver comentário na constante).
+  const discovered = [url, ...urls.filter((u) => u !== url)];
+  const cap = opts.fullSite ? MAX_PAGES_FULL_SITE : MAX_PAGES;
+  const ordered = discovered.slice(0, cap);
+  let truncated = discovered.length > ordered.length;
 
-  // 2. Auditar SEO de cada página (concorrência limitada)
-  const pages: PageSeo[] = new Array(ordered.length);
+  // 2. Auditar SEO de cada página (concorrência limitada, com orçamento de tempo)
+  const deadline = Date.now() + SEO_TIME_BUDGET_MS;
+  const pages: (PageSeo | undefined)[] = new Array(ordered.length);
   const queue = ordered.map((_, i) => i);
   async function worker() {
     while (queue.length) {
+      if (Date.now() > deadline) {
+        truncated = true;
+        break;
+      }
       const i = queue.shift();
       if (i === undefined) break;
       const pageUrl = ordered[i];
@@ -313,5 +356,10 @@ export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
-  return { pages, source };
+  return {
+    pages: pages.filter((p): p is PageSeo => p !== undefined),
+    source,
+    discoveredCount: discovered.length,
+    truncated,
+  };
 }

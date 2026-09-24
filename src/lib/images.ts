@@ -227,6 +227,17 @@ async function addSizes(
     return err instanceof Error && err.name === "AbortError" ? "timeout" : "erro de rede";
   }
 
+  // Alguns servidores/CDNs respondem HEAD com "Content-Length: 0" (corpo
+  // vazio de propósito, sem calcular o tamanho real) — um `parseInt` ingênuo
+  // aceitaria isso como "peso = 0 bytes", que a UI então trata como "sem
+  // peso" (ver formatBytes) mas SEM motivo nenhum, um "—" mudo enganoso.
+  // Só aceita um Content-Length estritamente positivo como peso válido.
+  function parsePositiveLength(len: string | null): number | null {
+    if (!len) return null;
+    const n = parseInt(len, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
   async function worker() {
     while (queue.length) {
       const i = queue.shift();
@@ -240,9 +251,9 @@ async function addSizes(
         try {
           await withTimeout(async (signal) => {
             const head = await fetch(src, { method: "HEAD", headers, signal });
-            const len = head.headers.get("content-length");
-            if (head.ok && len) {
-              result[i].bytes = parseInt(len, 10);
+            const len = parsePositiveLength(head.headers.get("content-length"));
+            if (head.ok && len !== null) {
+              result[i].bytes = len;
             } else if (!head.ok) {
               // Muitos servidores rejeitam HEAD (405) mesmo aceitando GET —
               // não é definitivo ainda, só um candidato a motivo.
@@ -264,15 +275,16 @@ async function addSizes(
                 return;
               }
               reason = null; // GET respondeu OK — descarta qualquer motivo do HEAD.
-              const len = res.headers.get("content-length");
-              if (missingWeight && len) {
-                result[i].bytes = parseInt(len, 10);
+              const len = parsePositiveLength(res.headers.get("content-length"));
+              if (missingWeight && len !== null) {
+                result[i].bytes = len;
               }
               // Precisa dos bytes crus tanto para medir o peso sem
-              // Content-Length quanto para ler a resolução via sharp.
-              if ((missingWeight && !len) || missingDims) {
+              // Content-Length (ou com um valor inválido, tipo 0) quanto
+              // para ler a resolução via sharp.
+              if ((missingWeight && len === null) || missingDims) {
                 const ab = await res.arrayBuffer();
-                if (result[i].bytes === null) result[i].bytes = ab.byteLength;
+                if (result[i].bytes === null && ab.byteLength > 0) result[i].bytes = ab.byteLength;
                 if (missingDims) {
                   try {
                     const meta = await sharp(Buffer.from(ab)).metadata();
