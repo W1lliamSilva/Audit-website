@@ -11,10 +11,29 @@ const MAX_PAGES = 10;
 const FETCH_TIMEOUT = 12000;
 const CONCURRENCY = 5;
 
+export interface HeadingItem {
+  /** 1–6, correspondendo a h1–h6. */
+  level: number;
+  text: string;
+}
+
+export type HeadingIssueKind = "missing-h1" | "multiple-h1" | "skipped-level" | "empty";
+
+export interface HeadingIssue {
+  /** Índice em `headings`; -1 quando o problema é da página como um todo (ex.: falta de h1). */
+  index: number;
+  kind: HeadingIssueKind;
+  message: string;
+}
+
 export interface PageSeo {
   url: string;
   checks: CheckResult[];
   totals: { pass: number; warn: number; fail: number };
+  /** Todos os h1–h6 da página, em ordem de documento. */
+  headings: HeadingItem[];
+  /** Problemas de hierarquia (níveis pulados, h1 duplicado/ausente, heading vazio). */
+  headingIssues: HeadingIssue[];
   error?: string;
 }
 
@@ -91,7 +110,64 @@ async function fromInternalLinks(base: URL, homeHtml: string): Promise<string[]>
   return Array.from(set);
 }
 
-function seoChecksFromHtml(html: string): { checks: CheckResult[]; totals: PageSeo["totals"] } {
+/** Extrai todos os h1–h6 da página, na ordem em que aparecem no documento. */
+function extractHeadings($: cheerio.CheerioAPI): HeadingItem[] {
+  const headings: HeadingItem[] = [];
+  $("h1, h2, h3, h4, h5, h6").each((_, el) => {
+    const tag = (el.tagName ?? "").toLowerCase();
+    const level = Number(tag.slice(1));
+    if (!level) return;
+    const text = $(el).text().trim().replace(/\s+/g, " ");
+    headings.push({ level, text });
+  });
+  return headings;
+}
+
+/**
+ * Regras de hierarquia de headings:
+ * - deve haver exatamente um <h1> (nem zero, nem mais de um);
+ * - a hierarquia não pode "pular" nível ao aprofundar (ex.: h2 → h4 sem h3
+ *   antes) — subir de volta (h3 → h2) é normal e não é problema;
+ * - nenhum heading deve ficar sem texto.
+ */
+function analyseHeadings(headings: HeadingItem[]): HeadingIssue[] {
+  const issues: HeadingIssue[] = [];
+  let seenH1 = false;
+  let lastLevel = 0;
+
+  headings.forEach((h, index) => {
+    if (h.level === 1) {
+      if (seenH1) {
+        issues.push({ index, kind: "multiple-h1", message: "Mais de um <h1> na página — o ideal é ter só um por página." });
+      }
+      seenH1 = true;
+    }
+    if (lastLevel > 0 && h.level > lastLevel + 1) {
+      issues.push({
+        index,
+        kind: "skipped-level",
+        message: `Pulou de <h${lastLevel}> para <h${h.level}> sem passar por <h${lastLevel + 1}> — prejudica leitores de tela e a leitura da estrutura pelo Google.`,
+      });
+    }
+    if (!h.text) {
+      issues.push({ index, kind: "empty", message: `<h${h.level}> sem nenhum texto.` });
+    }
+    lastLevel = h.level;
+  });
+
+  if (!seenH1) {
+    issues.unshift({ index: -1, kind: "missing-h1", message: "A página não tem nenhum <h1>." });
+  }
+
+  return issues;
+}
+
+function seoChecksFromHtml(html: string): {
+  checks: CheckResult[];
+  totals: PageSeo["totals"];
+  headings: HeadingItem[];
+  headingIssues: HeadingIssue[];
+} {
   const $ = cheerio.load(html);
   const checks: CheckResult[] = [];
 
@@ -128,7 +204,9 @@ function seoChecksFromHtml(html: string): { checks: CheckResult[]; totals: PageS
     warn: checks.filter((c) => c.status === "warn").length,
     fail: checks.filter((c) => c.status === "fail").length,
   };
-  return { checks, totals };
+  const headings = extractHeadings($);
+  const headingIssues = analyseHeadings(headings);
+  return { checks, totals, headings, headingIssues };
 }
 
 export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
@@ -164,11 +242,18 @@ export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
       const pageUrl = ordered[i];
       const html = await fetchText(pageUrl);
       if (!html) {
-        pages[i] = { url: pageUrl, checks: [], totals: { pass: 0, warn: 0, fail: 0 }, error: "Não foi possível carregar a página." };
+        pages[i] = {
+          url: pageUrl,
+          checks: [],
+          totals: { pass: 0, warn: 0, fail: 0 },
+          headings: [],
+          headingIssues: [],
+          error: "Não foi possível carregar a página.",
+        };
         continue;
       }
-      const { checks, totals } = seoChecksFromHtml(html);
-      pages[i] = { url: pageUrl, checks, totals };
+      const { checks, totals, headings, headingIssues } = seoChecksFromHtml(html);
+      pages[i] = { url: pageUrl, checks, totals, headings, headingIssues };
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));

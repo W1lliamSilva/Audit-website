@@ -2,10 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
+import {
+  SquaresFour,
+  LinkBreak,
+  CursorClick,
+  ImageSquare,
+  MagnifyingGlass,
+  ArrowsInSimple,
+  Eyedropper,
+} from "@phosphor-icons/react/dist/ssr";
+import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
-import type { SeoResult, PageSeo } from "@/lib/seo";
+import type { SeoResult, PageSeo, HeadingItem, HeadingIssue } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
 import type { LinkAuditResult, LinkAuditFinding } from "@/lib/linkaudit";
 import type { InspectResult } from "@/lib/inspect";
@@ -51,14 +61,14 @@ function splitDetail(d: string): { desc: string; location?: string } {
 }
 
 // Navegação → categoria da auditoria (ou "overview" para a Visão geral).
-const NAV_ITEMS: { label: string; sub?: string; view: string }[] = [
-  { label: "Visão geral", view: "overview" },
-  { label: "Links quebrados", view: "links" },
-  { label: "Botões sem ação", view: "buttons" },
-  { label: "Imagens e alt text", sub: "a parte de otimização", view: "images" },
-  { label: "SEO", sub: "meta tags, headings, títulos ausentes", view: "seo" },
-  { label: "Compressão de imagens", sub: "envie imagens e otimize", view: "compressor" },
-  { label: "Inspeção visual", sub: "cores, fontes e tokens", view: "inspect" },
+const NAV_ITEMS: { label: string; sub?: string; view: string; icon: PhosphorIcon }[] = [
+  { label: "Visão geral", view: "overview", icon: SquaresFour },
+  { label: "Links quebrados", view: "links", icon: LinkBreak },
+  { label: "Botões sem ação", view: "buttons", icon: CursorClick },
+  { label: "Imagens e alt text", sub: "a parte de otimização", view: "images", icon: ImageSquare },
+  { label: "SEO", sub: "meta tags, headings, títulos ausentes", view: "seo", icon: MagnifyingGlass },
+  { label: "Compressão de imagens", sub: "envie imagens e otimize", view: "compressor", icon: ArrowsInSimple },
+  { label: "Inspeção visual", sub: "cores, fontes e tokens", view: "inspect", icon: Eyedropper },
 ];
 
 export default function Home() {
@@ -278,6 +288,7 @@ export default function Home() {
         <nav style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
           {NAV_ITEMS.map((item) => {
             const isActive = active === item.label;
+            const NavIcon = item.icon;
             return (
               <button
                 key={item.label}
@@ -300,30 +311,38 @@ export default function Home() {
                   borderRadius: "var(--radius-xl)",
                   background: isActive ? "var(--nav-active-bg)" : "var(--nav-hover)",
                   display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
+                  alignItems: "flex-start",
+                  gap: 10,
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 14,
-                    lineHeight: "22px",
-                    color: isActive ? "var(--nav-active-text)" : "var(--text-default)",
-                  }}
-                >
-                  {item.label}
-                </span>
-                {item.sub && (
+                <NavIcon
+                  size={20}
+                  weight={isActive ? "fill" : "regular"}
+                  color={isActive ? "var(--nav-active-text)" : "var(--text-subtle)"}
+                  style={{ flexShrink: 0, marginTop: 1 }}
+                />
+                <span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
                   <span
                     style={{
-                      fontSize: 12,
-                      lineHeight: "16px",
-                      color: isActive ? "var(--nav-active-sub)" : "var(--text-subtle)",
+                      fontSize: 14,
+                      lineHeight: "22px",
+                      color: isActive ? "var(--nav-active-text)" : "var(--text-default)",
                     }}
                   >
-                    {item.sub}
+                    {item.label}
                   </span>
-                )}
+                  {item.sub && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        lineHeight: "16px",
+                        color: isActive ? "var(--nav-active-sub)" : "var(--text-subtle)",
+                      }}
+                    >
+                      {item.sub}
+                    </span>
+                  )}
+                </span>
               </button>
             );
           })}
@@ -1451,6 +1470,7 @@ function pageLabel(url: string): string {
 
 function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) {
   const [tab, setTab] = useState(0);
+  const [subTab, setSubTab] = useState<"checks" | "headings">("checks");
 
   if (loading) {
     return (
@@ -1534,31 +1554,168 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
                 <span style={{ color: "#b45309" }}>! {current.totals.warn} avisos</span>{"  ·  "}
                 <span style={{ color: "#dc2626" }}>✕ {current.totals.fail} falhas</span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {current.checks.map((check) => {
-                  const meta = STATUS_META[check.status];
+
+              {/* Sub-abas: Checagens de SEO / Estrutura de headings */}
+              <div style={{ display: "flex", gap: 6 }}>
+                {(
+                  [
+                    { key: "checks", label: "Checagens" },
+                    {
+                      key: "headings",
+                      label: `Estrutura de headings${current.headingIssues.length > 0 ? ` (${current.headingIssues.length})` : ""}`,
+                    },
+                  ] as const
+                ).map((t) => {
+                  const activeSub = subTab === t.key;
                   return (
-                    <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
-                      <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
-                        {meta.icon}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
-                        <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
-                        {check.details && check.details.length > 0 && (
-                          <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
-                            {check.details.map((d, i) => <li key={i}>{d}</li>)}
-                          </ul>
-                        )}
-                      </div>
-                    </div>
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setSubTab(t.key)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "none",
+                        cursor: "pointer",
+                        background: activeSub ? "var(--support-teal-light)" : "transparent",
+                        color: activeSub ? "var(--support-teal-base)" : "var(--text-subtle)",
+                        fontSize: 13,
+                      }}
+                    >
+                      {t.label}
+                    </button>
                   );
                 })}
               </div>
+
+              {subTab === "checks" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {current.checks.map((check) => {
+                    const meta = STATUS_META[check.status];
+                    return (
+                      <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+                        <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+                          {meta.icon}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
+                          <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
+                          {check.details && check.details.length > 0 && (
+                            <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
+                              {check.details.map((d, i) => <li key={i}>{d}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <HeadingsTree headings={current.headings} issues={current.headingIssues} />
+              )}
             </>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Árvore de estrutura de headings (h1–h6) ---------- */
+const HEADING_LEVEL_COLOR: Record<number, string> = {
+  1: "#4338ca",
+  2: "#0a7b77",
+  3: "#b45309",
+  4: "#7c3aed",
+  5: "#be185d",
+  6: "#57534e",
+};
+
+function HeadingsTree({ headings, issues }: { headings: HeadingItem[]; issues: HeadingIssue[] }) {
+  if (headings.length === 0) {
+    return <Empty text="Nenhum heading (h1–h6) encontrado nesta página." />;
+  }
+
+  const pageIssues: HeadingIssue[] = [];
+  const issuesByIndex = new Map<number, HeadingIssue[]>();
+  for (const issue of issues) {
+    if (issue.index < 0) {
+      pageIssues.push(issue);
+      continue;
+    }
+    const list = issuesByIndex.get(issue.index) ?? [];
+    list.push(issue);
+    issuesByIndex.set(issue.index, list);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {pageIssues.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {pageIssues.map((issue, i) => (
+            <div
+              key={i}
+              style={{
+                fontSize: 13,
+                color: "#dc2626",
+                background: "rgba(220,38,38,0.08)",
+                border: "1px solid rgba(220,38,38,0.25)",
+                borderRadius: 8,
+                padding: "8px 12px",
+              }}
+            >
+              ⚠ {issue.message}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {headings.map((h, i) => {
+          const hIssues = issuesByIndex.get(i) ?? [];
+          const hasIssue = hIssues.length > 0;
+          return (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                marginLeft: (h.level - 1) * 20,
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: hasIssue ? "rgba(220,38,38,0.06)" : "var(--surface-elevated)",
+                border: "1px solid " + (hasIssue ? "rgba(220,38,38,0.25)" : "var(--border-subtle)"),
+              }}
+            >
+              <span
+                style={{
+                  flexShrink: 0,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  lineHeight: "16px",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  color: "#fff",
+                  background: HEADING_LEVEL_COLOR[h.level] ?? "#78716c",
+                }}
+              >
+                H{h.level}
+              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 14, color: h.text ? "var(--text-default)" : "var(--text-subtle)", wordBreak: "break-word" }}>
+                  {h.text || "(sem texto)"}
+                </div>
+                {hIssues.map((issue, k) => (
+                  <div key={k} style={{ fontSize: 12, color: "#dc2626", marginTop: 3 }}>
+                    ⚠ {issue.message}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

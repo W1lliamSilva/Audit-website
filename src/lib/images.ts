@@ -167,12 +167,18 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
   }
 }
 
-/** Busca o peso (Content-Length) de cada imagem via HEAD, com concorrência limitada. */
+/**
+ * Busca o peso de cada imagem, com concorrência limitada. Tenta primeiro o
+ * header Content-Length (via HEAD); quando ausente (comum em CDNs que
+ * respondem com transferência em chunks, sem esse header), baixa a imagem
+ * via GET e mede o tamanho real do arquivo — assim o peso quase sempre
+ * aparece, mesmo quando o servidor não informa o Content-Length.
+ */
 async function addSizes(
   imgs: Omit<ImageIssue, "bytes">[]
 ): Promise<ImageIssue[]> {
   const CONCURRENCY = 6;
-  const TIMEOUT_MS = 6000;
+  const TIMEOUT_MS = 8000;
   const result: ImageIssue[] = imgs.map((im) => ({ ...im, bytes: null }));
   const queue = result.map((_, i) => i);
 
@@ -184,13 +190,34 @@ async function addSizes(
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-        let res = await fetch(src, { method: "HEAD", signal: controller.signal });
-        if (res.status === 405 || res.status === 501 || !res.headers.get("content-length")) {
-          res = await fetch(src, { method: "GET", signal: controller.signal });
+        try {
+          const head = await fetch(src, { method: "HEAD", signal: controller.signal });
+          const len = head.headers.get("content-length");
+          if (head.ok && len) {
+            result[i].bytes = parseInt(len, 10);
+            continue;
+          }
+        } catch {
+          // segue para o GET abaixo
+        } finally {
+          clearTimeout(timer);
         }
-        clearTimeout(timer);
-        const len = res.headers.get("content-length");
-        if (len) result[i].bytes = parseInt(len, 10);
+
+        const controller2 = new AbortController();
+        const timer2 = setTimeout(() => controller2.abort(), TIMEOUT_MS);
+        try {
+          const res = await fetch(src, { method: "GET", signal: controller2.signal });
+          const len = res.headers.get("content-length");
+          if (res.ok && len) {
+            result[i].bytes = parseInt(len, 10);
+          } else if (res.ok) {
+            // Sem Content-Length (resposta em chunks): mede o tamanho real do corpo baixado.
+            const ab = await res.arrayBuffer();
+            result[i].bytes = ab.byteLength;
+          }
+        } finally {
+          clearTimeout(timer2);
+        }
       } catch {
         // ignora — bytes fica null
       }
