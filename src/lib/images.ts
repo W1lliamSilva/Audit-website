@@ -5,6 +5,10 @@
 
 import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
+import sharp from "sharp";
+
+const USER_AGENT =
+  "Mozilla/5.0 (compatible; SiteAuditTool/1.0; +https://github.com/W1lliamSilva/Audit-website)";
 
 export interface ImageIssue {
   src: string;
@@ -64,9 +68,7 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
       defaultViewport: { width: 1280, height: 900, deviceScaleFactor: 1 },
     });
     const page = await browser.newPage();
-    await page.setUserAgent(
-      "Mozilla/5.0 (compatible; SiteAuditTool/1.0; +https://github.com/W1lliamSilva/Audit-website)"
-    );
+    await page.setUserAgent(USER_AGENT);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
     // Rola a página para disparar lazy-loading de imagens.
     await page.evaluate(async () => {
@@ -136,9 +138,25 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
         return parts.join(" > ");
       }
 
+      // `currentSrc`/`src` (propriedades do DOM) já vêm absolutos do browser.
+      // `data-src` (atributo cru, usado por libs de lazy-load quando a imagem
+      // ainda não carregou) pode vir relativo — precisa resolver manualmente,
+      // senão o fetch de peso no servidor falha por não ser uma URL válida.
+      function resolveSrc(raw: string): string {
+        if (!raw) return "";
+        try {
+          return new URL(raw, document.baseURI).href;
+        } catch {
+          return raw;
+        }
+      }
+
       const imgs = Array.from(document.querySelectorAll("img"));
       const all = imgs.map((img) => ({
-        src: (img as HTMLImageElement).currentSrc || (img as HTMLImageElement).src || img.getAttribute("data-src") || "",
+        src:
+          (img as HTMLImageElement).currentSrc ||
+          (img as HTMLImageElement).src ||
+          resolveSrc(img.getAttribute("data-src") ?? ""),
         alt: img.hasAttribute("alt") ? img.getAttribute("alt") : null,
         width: (img as HTMLImageElement).naturalWidth || 0,
         height: (img as HTMLImageElement).naturalHeight || 0,
@@ -152,7 +170,7 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
     const withoutAltRaw = data.all.filter(
       (im) => (im.alt === null || im.alt.trim() === "") && im.src && !im.src.startsWith("data:")
     );
-    const withoutAlt = await addSizes(withoutAltRaw);
+    const withoutAlt = await addSizes(withoutAltRaw, pageUrl);
     return { total: data.total, withoutAlt, pageUrl };
   } catch (err) {
     const error =
@@ -172,13 +190,21 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
  * header Content-Length (via HEAD); quando ausente (comum em CDNs que
  * respondem com transferência em chunks, sem esse header), baixa a imagem
  * via GET e mede o tamanho real do arquivo — assim o peso quase sempre
- * aparece, mesmo quando o servidor não informa o Content-Length.
+ * aparece, mesmo quando o servidor não informa o Content-Length. Funciona
+ * igual para qualquer formato (png, jpg/jpeg, gif, svg, webp, avif…), já que
+ * a medição é sobre os bytes crus da resposta, não sobre o tipo de imagem.
+ *
+ * Envia User-Agent + Referer (a própria página auditada), pois muitos CDNs
+ * com proteção anti-hotlink (Cloudflare Images, Shopify, imgix, WixStatic…)
+ * bloqueiam requisições sem esses headers.
  */
 async function addSizes(
-  imgs: Omit<ImageIssue, "bytes">[]
+  imgs: Omit<ImageIssue, "bytes">[],
+  pageUrl: string
 ): Promise<ImageIssue[]> {
   const CONCURRENCY = 6;
   const TIMEOUT_MS = 8000;
+  const headers = { "user-agent": USER_AGENT, referer: pageUrl, accept: "image/*,*/*;q=0.8" };
   const result: ImageIssue[] = imgs.map((im) => ({ ...im, bytes: null }));
   const queue = result.map((_, i) => i);
 
@@ -191,7 +217,7 @@ async function addSizes(
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
         try {
-          const head = await fetch(src, { method: "HEAD", signal: controller.signal });
+          const head = await fetch(src, { method: "HEAD", headers, signal: controller.signal });
           const len = head.headers.get("content-length");
           if (head.ok && len) {
             result[i].bytes = parseInt(len, 10);
@@ -206,7 +232,7 @@ async function addSizes(
         const controller2 = new AbortController();
         const timer2 = setTimeout(() => controller2.abort(), TIMEOUT_MS);
         try {
-          const res = await fetch(src, { method: "GET", signal: controller2.signal });
+          const res = await fetch(src, { method: "GET", headers, signal: controller2.signal });
           const len = res.headers.get("content-length");
           if (res.ok && len) {
             result[i].bytes = parseInt(len, 10);
@@ -214,6 +240,21 @@ async function addSizes(
             // Sem Content-Length (resposta em chunks): mede o tamanho real do corpo baixado.
             const ab = await res.arrayBuffer();
             result[i].bytes = ab.byteLength;
+            // Já que baixamos o arquivo inteiro, aproveita para preencher a
+            // resolução quando o navegador não conseguiu (comum em SVG sem
+            // width/height explícitos, ou imagens que só carregaram via
+            // lazy-load depois da varredura do DOM).
+            if (!result[i].width || !result[i].height) {
+              try {
+                const meta = await sharp(Buffer.from(ab)).metadata();
+                if (meta.width && meta.height) {
+                  result[i].width = meta.width;
+                  result[i].height = meta.height;
+                }
+              } catch {
+                // formato não suportado pelo sharp (ex.: SVG malformado) — ignora
+              }
+            }
           }
         } finally {
           clearTimeout(timer2);

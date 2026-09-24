@@ -12,6 +12,7 @@ import {
   Eyedropper,
 } from "@phosphor-icons/react/dist/ssr";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
+import { Atom } from "loading-dev";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
@@ -392,8 +393,12 @@ export default function Home() {
                   fontSize: 14,
                   cursor: loading ? "default" : "pointer",
                   whiteSpace: "nowrap",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
                 }}
               >
+                {loading && <Loader size={14} color="#fff" />}
                 {loading ? "Auditando…" : "Auditar"}
               </button>
             </form>
@@ -470,7 +475,7 @@ function AuditEmptyState({ loading, label, view }: { loading: boolean; label: st
   if (loading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "80px 24px" }}>
-        <Image className="brand-icon" src="/figma/search.svg" alt="" width={48} height={48} style={{ width: 48, height: 48, opacity: 0.6 }} />
+        <Loader size={56} />
         <p style={{ fontSize: 14, color: "var(--text-subtle)" }}>Auditando o site…</p>
       </div>
     );
@@ -509,61 +514,43 @@ function Gauge({
   const offset = c * (1 - value / 100);
   const clickable = !loading && score !== null && !!onClick;
 
+  if (loading) {
+    return (
+      <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader size={48} />
+      </div>
+    );
+  }
+
   const svg = (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--stroke-light)" strokeWidth={stroke} />
-      {loading ? (
-        // Spinner indeterminado
+      {score !== null && (
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="var(--text-subtle)"
+          stroke={color}
           strokeWidth={stroke}
+          strokeDasharray={c}
+          strokeDashoffset={offset}
           strokeLinecap="round"
-          strokeDasharray={`${c * 0.25} ${c * 0.75}`}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        >
-          <animateTransform
-            attributeName="transform"
-            type="rotate"
-            from={`0 ${size / 2} ${size / 2}`}
-            to={`360 ${size / 2} ${size / 2}`}
-            dur="0.9s"
-            repeatCount="indefinite"
-          />
-        </circle>
-      ) : (
-        score !== null && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke={color}
-            strokeWidth={stroke}
-            strokeDasharray={c}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          />
-        )
+        />
       )}
       <text
         x="50%"
         y="47%"
         textAnchor="middle"
         dominantBaseline="middle"
-        style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: score === null && !loading ? 24 : 26, fill: score === null ? "var(--text-subtle)" : "#000" }}
+        style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: score === null ? 24 : 26, fill: score === null ? "var(--text-subtle)" : "#000" }}
       >
-        {loading ? "" : score === null ? "—" : value}
+        {score === null ? "—" : value}
       </text>
-      {!loading && (
-        <text x="50%" y="63%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 10, fill: "var(--text-subtle)" }}>
-          /100
-        </text>
-      )}
+      <text x="50%" y="63%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 10, fill: "var(--text-subtle)" }}>
+        /100
+      </text>
     </svg>
   );
 
@@ -728,7 +715,7 @@ function Overview({
       {/* Imagens e alt text (prévia) */}
       <Section title="Imagens e alt text" onSeeAll={imgsWithoutAlt.length > 2 ? () => onOpenView("images") : undefined}>
         {imagesLoading ? (
-          <Empty text="Analisando as imagens da página…" />
+          <LoadingInline text="Analisando as imagens da página…" />
         ) : images?.error ? (
           <Empty text={images.error} />
         ) : imgsWithoutAlt.length === 0 ? (
@@ -774,6 +761,31 @@ function Divider() {
 
 function Empty({ text }: { text: string }) {
   return <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: 0 }}>{text}</p>;
+}
+
+/** Loader padrão do app (https://loading.dev/spinners/atom), usado em todo estado de carregamento. */
+function Loader({ size = 16, color = "var(--text-subtle)" }: { size?: number; color?: string }) {
+  return <Atom color={color} size={size} />;
+}
+
+/** Bloco de carregamento centralizado (telas cheias / seções). */
+function LoadingBlock({ text, size = 32 }: { text: string; size?: number }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "32px 24px" }}>
+      <Loader size={size} />
+      <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: 0, textAlign: "center" }}>{text}</p>
+    </div>
+  );
+}
+
+/** Carregamento inline (linha compacta dentro de previews/cards). */
+function LoadingInline({ text, size = 16 }: { text: string; size?: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <Loader size={size} />
+      <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: 0 }}>{text}</p>
+    </div>
+  );
 }
 
 function Section({
@@ -983,9 +995,9 @@ function LinkIssueCard({
             </p>
           ) : (
             <>
-              <p style={{ margin: 0, padding: "8px 12px", fontSize: 12, color: "var(--text-subtle)" }}>
-                Carregando print…
-              </p>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, margin: 0, padding: "8px 12px", fontSize: 12, color: "var(--text-subtle)" }}>
+                <Loader size={13} /> Carregando print…
+              </div>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={shotUrl}
@@ -1108,8 +1120,9 @@ function ImageCard({
               type="button"
               onClick={onCompress}
               disabled={compLoading}
-              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: compLoading ? "default" : "pointer" }}
+              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: compLoading ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
+              {compLoading && <Loader size={13} color="#fff" />}
               {compLoading ? "Comprimindo…" : "🗜 Comprimir"}
             </button>
           ) : null}
@@ -1231,7 +1244,7 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
         Imagens e alt text
       </h1>
       {loading ? (
-        <Empty text="Analisando as imagens da página (renderizando com navegador)…" />
+        <LoadingBlock text="Analisando as imagens da página (renderizando com navegador)…" />
       ) : images?.error ? (
         <Empty text={images.error} />
       ) : !images ? (
@@ -1277,8 +1290,9 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
               type="button"
               onClick={compressAll}
               disabled={batchRunning}
-              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: batchRunning ? "default" : "pointer" }}
+              style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: batchRunning ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
+              {batchRunning && <Loader size={13} color="#fff" />}
               {batchRunning ? `Comprimindo… (${okCount}/${imgs.length})` : "🗜 Comprimir todas"}
             </button>
             {okCount > 0 && (
@@ -1286,8 +1300,9 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
                 type="button"
                 onClick={downloadZip}
                 disabled={zipping}
-                style={{ background: "var(--support-teal-base)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: zipping ? "default" : "pointer" }}
+                style={{ background: "var(--support-teal-base)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: zipping ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
               >
+                {zipping && <Loader size={13} color="#fff" />}
                 {zipping ? "Gerando .zip…" : `Baixar tudo (.zip · ${okCount})`}
               </button>
             )}
@@ -1476,7 +1491,7 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>SEO</h1>
-        <Empty text="Descobrindo e auditando as páginas do site…" />
+        <LoadingBlock text="Descobrindo e auditando as páginas do site…" />
       </div>
     );
   }
@@ -1939,7 +1954,8 @@ function CompressorView() {
           </button>
         )}
         {okCount > 0 && (
-          <button type="button" onClick={downloadZip} disabled={zipping} style={{ background: "var(--support-teal-base)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: zipping ? "default" : "pointer" }}>
+          <button type="button" onClick={downloadZip} disabled={zipping} style={{ background: "var(--support-teal-base)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: zipping ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {zipping && <Loader size={13} color="#fff" />}
             {zipping ? "Gerando .zip…" : `Baixar tudo (.zip · ${okCount})`}
           </button>
         )}
@@ -1960,7 +1976,11 @@ function CompressorView() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-default)", wordBreak: "break-all" }}>{it.name}</div>
                   <div style={{ fontSize: 13, color: "var(--text-subtle)", marginTop: 4 }}>
-                    {it.loading ? "Comprimindo…" : r?.ok ? (
+                    {it.loading ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <Loader size={13} /> Comprimindo…
+                      </span>
+                    ) : r?.ok ? (
                       <>
                         {formatBytes(r.originalBytes ?? 0)} → <strong style={{ color: "var(--text-default)" }}>{formatBytes(r.compressedBytes ?? 0)}</strong>
                         {typeof r.savedPct === "number" && <span style={{ color: r.savedPct > 0 ? "#16a34a" : "var(--text-subtle)", marginLeft: 6, fontWeight: 600 }}>({r.savedPct > 0 ? "−" : ""}{Math.abs(r.savedPct)}%)</span>}
@@ -2034,7 +2054,7 @@ function LoadingSection({ title, text }: { title: string; text: string }) {
       <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
         {title}
       </h1>
-      <Empty text={text} />
+      <LoadingBlock text={text} />
     </div>
   );
 }
