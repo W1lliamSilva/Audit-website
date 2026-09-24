@@ -16,7 +16,7 @@ import { Atom } from "loading-dev";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
-import type { SeoResult, PageSeo, HeadingItem, HeadingIssue } from "@/lib/seo";
+import type { SeoResult, PageSeo, HeadingItem, HeadingIssue, ScanError, ScanErrorKind } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
 import type { LinkAuditResult, LinkAuditFinding } from "@/lib/linkaudit";
 import type { InspectResult } from "@/lib/inspect";
@@ -1485,7 +1485,7 @@ function pageLabel(url: string): string {
 
 function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) {
   const [tab, setTab] = useState(0);
-  const [subTab, setSubTab] = useState<"checks" | "headings">("checks");
+  const [subTab, setSubTab] = useState<"checks" | "headings" | "scan-errors">("checks");
 
   if (loading) {
     return (
@@ -1507,8 +1507,10 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
 
   const pages = seo.pages;
   const current = pages[Math.min(tab, pages.length - 1)];
+  const scanErrorPages = pages.filter((p) => p.scanError);
 
   function dotColor(p: PageSeo): string {
+    if (p.scanError) return "#7c3aed";
     if (p.error || p.totals.fail > 0) return "#dc2626";
     if (p.totals.warn > 0) return "#d97706";
     return "#16a34a";
@@ -1560,78 +1562,156 @@ function SeoView({ seo, loading }: { seo: SeoResult | null; loading: boolean }) 
           <a href={current.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--support-teal-base)", wordBreak: "break-all" }}>
             {current.url}
           </a>
-          {current.error ? (
-            <Empty text={current.error} />
+          {!current.error && (
+            <div style={{ fontSize: 13 }}>
+              <span style={{ color: "#16a34a" }}>✓ {current.totals.pass} ok</span>{"  ·  "}
+              <span style={{ color: "#b45309" }}>! {current.totals.warn} avisos</span>{"  ·  "}
+              <span style={{ color: "#dc2626" }}>✕ {current.totals.fail} falhas</span>
+            </div>
+          )}
+
+          {/* Sub-abas: Checagens de SEO / Estrutura de headings / Erros de digitalização */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {(
+              [
+                { key: "checks", label: "Checagens" },
+                {
+                  key: "headings",
+                  label: `Estrutura de headings${current.headingIssues.length > 0 ? ` (${current.headingIssues.length})` : ""}`,
+                },
+                {
+                  key: "scan-errors",
+                  label: `Erros de digitalização${scanErrorPages.length > 0 ? ` (${scanErrorPages.length})` : ""}`,
+                },
+              ] as const
+            ).map((t) => {
+              const activeSub = subTab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setSubTab(t.key)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "none",
+                    cursor: "pointer",
+                    background: activeSub ? "var(--support-teal-light)" : "transparent",
+                    color: activeSub ? "var(--support-teal-base)" : "var(--text-subtle)",
+                    fontSize: 13,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {subTab === "scan-errors" ? (
+            <ScanErrorsView
+              pages={scanErrorPages}
+              onOpenPage={(url) => {
+                const idx = pages.findIndex((p) => p.url === url);
+                if (idx >= 0) setTab(idx);
+                setSubTab("checks");
+              }}
+            />
+          ) : current.error ? (
+            <Empty text={`${current.error} Veja detalhes na aba "Erros de digitalização".`} />
+          ) : subTab === "checks" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {current.checks.map((check) => {
+                const meta = STATUS_META[check.status];
+                return (
+                  <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+                    <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+                      {meta.icon}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
+                      <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
+                      {check.details && check.details.length > 0 && (
+                        <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
+                          {check.details.map((d, i) => <li key={i}>{d}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            <>
-              <div style={{ fontSize: 13 }}>
-                <span style={{ color: "#16a34a" }}>✓ {current.totals.pass} ok</span>{"  ·  "}
-                <span style={{ color: "#b45309" }}>! {current.totals.warn} avisos</span>{"  ·  "}
-                <span style={{ color: "#dc2626" }}>✕ {current.totals.fail} falhas</span>
-              </div>
-
-              {/* Sub-abas: Checagens de SEO / Estrutura de headings */}
-              <div style={{ display: "flex", gap: 6 }}>
-                {(
-                  [
-                    { key: "checks", label: "Checagens" },
-                    {
-                      key: "headings",
-                      label: `Estrutura de headings${current.headingIssues.length > 0 ? ` (${current.headingIssues.length})` : ""}`,
-                    },
-                  ] as const
-                ).map((t) => {
-                  const activeSub = subTab === t.key;
-                  return (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => setSubTab(t.key)}
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 4,
-                        border: "none",
-                        cursor: "pointer",
-                        background: activeSub ? "var(--support-teal-light)" : "transparent",
-                        color: activeSub ? "var(--support-teal-base)" : "var(--text-subtle)",
-                        fontSize: 13,
-                      }}
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {subTab === "checks" ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {current.checks.map((check) => {
-                    const meta = STATUS_META[check.status];
-                    return (
-                      <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
-                        <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
-                          {meta.icon}
-                        </span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
-                          <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
-                          {check.details && check.details.length > 0 && (
-                            <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
-                              {check.details.map((d, i) => <li key={i}>{d}</li>)}
-                            </ul>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <HeadingsTree headings={current.headings} issues={current.headingIssues} />
-              )}
-            </>
+            <HeadingsTree headings={current.headings} issues={current.headingIssues} />
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Erros de digitalização (páginas que não puderam ser lidas) ---------- */
+const SCAN_ERROR_LABEL: Record<ScanErrorKind, string> = {
+  "http-error": "Erro HTTP",
+  timeout: "Timeout",
+  "network-error": "Erro de rede",
+  "invalid-content-type": "Conteúdo inválido",
+};
+const SCAN_ERROR_COLOR: Record<ScanErrorKind, string> = {
+  "http-error": "#dc2626",
+  timeout: "#b45309",
+  "network-error": "#dc2626",
+  "invalid-content-type": "#7c3aed",
+};
+
+function ScanErrorsView({ pages, onOpenPage }: { pages: PageSeo[]; onOpenPage: (url: string) => void }) {
+  if (pages.length === 0) {
+    return <Empty text="Nenhum erro de digitalização — todas as páginas foram lidas com sucesso 🎉" />;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>
+        {pages.length} página{pages.length !== 1 ? "s" : ""} não p{pages.length !== 1 ? "uderam" : "ôde"} ser digitalizada{pages.length !== 1 ? "s" : ""}.
+      </p>
+      {pages.map((p) => {
+        const err = p.scanError as ScanError;
+        return (
+          <button
+            key={p.url}
+            type="button"
+            onClick={() => onOpenPage(p.url)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              textAlign: "left",
+              padding: 14,
+              background: "var(--surface-elevated)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: 100,
+                  color: "#fff",
+                  background: SCAN_ERROR_COLOR[err.kind],
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {SCAN_ERROR_LABEL[err.kind]}
+                {err.status ? ` ${err.status}` : ""}
+              </span>
+              <span style={{ fontSize: 13, color: "var(--text-default)", wordBreak: "break-all" }}>{p.url}</span>
+            </div>
+            <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>{err.message}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

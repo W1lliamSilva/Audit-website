@@ -26,6 +26,22 @@ export interface HeadingIssue {
   message: string;
 }
 
+/**
+ * Motivo pelo qual uma página não pôde ser digitalizada (lida/analisada):
+ * - `http-error`: o servidor respondeu com status >= 400 (ou outro erro HTTP);
+ * - `timeout`: não respondeu dentro do limite de tempo;
+ * - `network-error`: falha de conexão (DNS, TLS, conexão recusada…);
+ * - `invalid-content-type`: respondeu OK, mas o conteúdo não é HTML.
+ */
+export type ScanErrorKind = "http-error" | "timeout" | "network-error" | "invalid-content-type";
+
+export interface ScanError {
+  kind: ScanErrorKind;
+  /** Status HTTP, quando aplicável (kind === "http-error"). */
+  status?: number;
+  message: string;
+}
+
 export interface PageSeo {
   url: string;
   checks: CheckResult[];
@@ -34,6 +50,8 @@ export interface PageSeo {
   headings: HeadingItem[];
   /** Problemas de hierarquia (níveis pulados, h1 duplicado/ausente, heading vazio). */
   headingIssues: HeadingIssue[];
+  /** Detalhe estruturado de por que a página não pôde ser digitalizada (quando houve falha). */
+  scanError?: ScanError;
   error?: string;
 }
 
@@ -48,7 +66,8 @@ function normalizeUrl(input: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-async function fetchText(url: string, accept = "text/html"): Promise<string | null> {
+/** Busca uma página e, em caso de falha, descreve exatamente por quê (ver `ScanErrorKind`). */
+async function fetchPage(url: string, accept = "text/html"): Promise<{ html: string | null; scanError?: ScanError }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
   try {
@@ -57,13 +76,40 @@ async function fetchText(url: string, accept = "text/html"): Promise<string | nu
       headers: { "user-agent": USER_AGENT, accept },
       signal: controller.signal,
     });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
+    if (!res.ok) {
+      return {
+        html: null,
+        scanError: { kind: "http-error", status: res.status, message: `O servidor respondeu com HTTP ${res.status}.` },
+      };
+    }
+    if (accept === "text/html") {
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("html")) {
+        return {
+          html: null,
+          scanError: {
+            kind: "invalid-content-type",
+            message: `A resposta não é HTML (content-type: ${contentType || "desconhecido"}).`,
+          },
+        };
+      }
+    }
+    return { html: await res.text() };
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    return {
+      html: null,
+      scanError: isTimeout
+        ? { kind: "timeout", message: `A página não respondeu em ${FETCH_TIMEOUT / 1000}s (timeout).` }
+        : { kind: "network-error", message: "Falha de conexão ao tentar acessar a página (DNS, TLS ou rede recusou a conexão)." },
+    };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchText(url: string, accept = "text/html"): Promise<string | null> {
+  return (await fetchPage(url, accept)).html;
 }
 
 /** Lê URLs de um sitemap (suporta sitemap index apontando para outros sitemaps). */
@@ -240,7 +286,7 @@ export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
       const i = queue.shift();
       if (i === undefined) break;
       const pageUrl = ordered[i];
-      const html = await fetchText(pageUrl);
+      const { html, scanError } = await fetchPage(pageUrl);
       if (!html) {
         pages[i] = {
           url: pageUrl,
@@ -248,7 +294,8 @@ export async function getSeoForPages(rawUrl: string): Promise<SeoResult> {
           totals: { pass: 0, warn: 0, fail: 0 },
           headings: [],
           headingIssues: [],
-          error: "Não foi possível carregar a página.",
+          scanError: scanError ?? { kind: "network-error", message: "Não foi possível carregar a página." },
+          error: scanError?.message ?? "Não foi possível carregar a página.",
         };
         continue;
       }

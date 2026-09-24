@@ -55,8 +55,28 @@ sobre `h2`–`h6` também, e sobre a página inteira, não só o título.
    limitada a `MAX_PAGES = 10` páginas.
 4. Cada página é buscada e checada em paralelo, com `CONCURRENCY = 5` e
    timeout de `FETCH_TIMEOUT = 12000` ms por requisição. Falha ao carregar
-   uma página não interrompe as demais — ela aparece com
-   `error: "Não foi possível carregar a página."` e checks vazios.
+   uma página não interrompe as demais — ver "Erros de digitalização" abaixo.
+
+## Erros de digitalização (multi-page, aba "Erros de digitalização")
+
+Quando `fetchPage` não consegue obter e ler o HTML de uma página, o motivo
+exato fica registrado em `PageSeo.scanError` (`ScanErrorKind`) e a página
+aparece agregada na aba "Erros de digitalização" — junto com todas as outras
+páginas que falharam, independente de qual página esteja selecionada nas
+abas/pills no topo:
+
+| `kind` | Quando acontece |
+|---|---|
+| `http-error` | O servidor respondeu com status HTTP ≥ 400 (ou outro erro HTTP). Mostra o status exato (ex.: "Erro HTTP 404"). |
+| `timeout` | A página não respondeu dentro de `FETCH_TIMEOUT` (12s). |
+| `network-error` | Falha de conexão — DNS, TLS ou a conexão foi recusada. |
+| `invalid-content-type` | O servidor respondeu OK, mas o `content-type` da resposta não contém `html` (ex.: um link interno que aponta para uma imagem ou um JSON). |
+
+Uma página com `scanError` não tem `checks`/`headings` (ambos ficam vazios) —
+as sub-abas "Checagens" e "Estrutura de headings" mostram uma mensagem
+apontando para "Erros de digitalização" em vez de uma lista vazia enganosa.
+O ponto (dot) da página nas pills do topo fica roxo para diferenciar "não deu
+pra ler a página" de "leu, mas achou problemas" (vermelho/amarelo).
 
 ## Pontuação
 
