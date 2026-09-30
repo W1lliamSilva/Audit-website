@@ -92,3 +92,49 @@ dois** — a nota do Lighthouse OU o tempo real — tiver dado disponível. Isso
 importa porque a API do PageSpeed falha com frequência (rate limit externo),
 e sem essa checagem o usuário ficaria sem acesso ao tempo real justamente
 quando o Lighthouse falha.
+
+## Simulação por tipo de conexão (sob demanda, dentro do modal)
+
+Fonte: [`src/lib/simulate.ts`](../../src/lib/simulate.ts). Rota:
+`POST /api/simulate`, mesmo formato de `{ url, strategy }`.
+
+**Por quê existe**: outra forma de medir desempenho sem depender do
+PageSpeed — mas, ao contrário do "Tempo real" acima (que mede a condição
+atual, sem simulação nenhuma), aqui a ideia é o oposto: simular de propósito
+várias condições de rede típicas, para ver como a página se comporta em
+conexões mais lentas que a do servidor da auditoria.
+
+Como funciona:
+1. Usa os mesmos perfis de banda/latência do "Network throttling" do Chrome
+   DevTools (`puppeteer-core`'s `PredefinedNetworkConditions`), aplicados via
+   `page.emulateNetworkConditions(...)`:
+
+   | Perfil | Download | Upload | Latência |
+   |---|---|---|---|
+   | Wi-Fi / banda larga | sem limite | sem limite | sem limite |
+   | 4G | ~1 MB/s | ~165 KB/s | 165 ms |
+   | 3G rápido | ~180 KB/s | ~84 KB/s | 562 ms |
+   | 3G lento | ~50 KB/s | ~50 KB/s | 2000 ms |
+
+   (o preset "Slow 4G" do Chrome tem exatamente os mesmos números de "Fast
+   3G" — por isso só um dos dois aparece na lista, como "3G rápido", evitando
+   mostrar duas linhas idênticas.)
+2. Abre uma aba nova por perfil (sequencial, não em paralelo — evita
+   sobrecarregar o site auditado com 4 cargas simultâneas, e evita cache/
+   cookies vazando de um perfil pro outro), navega com `waitUntil: "load"` e
+   timeout de 45s por perfil, e lê `domContentLoadedEventEnd`/`loadEventEnd`
+   do `PerformanceNavigationTiming` — mesma técnica do "Tempo real", só que
+   com a rede artificialmente limitada.
+3. Falha em um perfil (timeout ou erro) não derruba os demais — cada perfil
+   tem seu próprio `error` independente.
+
+**Sob demanda, não automático**: diferente do Lighthouse e do "Tempo real"
+(que rodam assim que a auditoria termina), a simulação só roda quando o
+usuário clica em "Simular carregamento por conexão" dentro do modal — são 4
+cargas completas da página em sequência (a "3G lento" sozinha pode levar
+vários segundos), então dispará-la em toda auditoria multiplicaria o custo
+de Puppeteer por 4 sem necessidade, a maioria das vezes sem o usuário nem
+abrir o modal.
+
+`maxDuration = 200` na rota (bem mais que as outras, que usam 60–300s)
+porque são 4 medições sequenciais, uma delas propositalmente lenta.

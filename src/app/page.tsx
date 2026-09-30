@@ -10,12 +10,14 @@ import {
   MagnifyingGlass,
   ArrowsInSimple,
   Eyedropper,
+  Gauge as GaugeIcon,
 } from "@phosphor-icons/react/dist/ssr";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { Atom } from "loading-dev";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { RealLoadResult } from "@/lib/realload";
+import type { SimulateResult } from "@/lib/simulate";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
 import type { SeoResult, PageSeo, HeadingItem, HeadingIssue, ScanError, ScanErrorKind, SpellingIssue, UppercaseIssue } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
@@ -69,6 +71,7 @@ const NAV_ITEMS: { label: string; sub?: string; view: string; icon: PhosphorIcon
   { label: "Botões sem ação", view: "buttons", icon: CursorClick },
   { label: "Imagens e alt text", sub: "a parte de otimização", view: "images", icon: ImageSquare },
   { label: "SEO", sub: "meta tags, headings, títulos ausentes", view: "seo", icon: MagnifyingGlass },
+  { label: "Relatório de desempenho", sub: "Lighthouse, tempo real e simulação de rede", view: "performance", icon: GaugeIcon },
   { label: "Compressão de imagens", sub: "envie imagens e otimize", view: "compressor", icon: ArrowsInSimple },
   { label: "Inspeção visual", sub: "cores, fontes e tokens", view: "inspect", icon: Eyedropper },
 ];
@@ -121,6 +124,14 @@ export default function Home() {
     mobile: null,
   });
   const [realLoadLoading, setRealLoadLoading] = useState<Record<Strategy, boolean>>({
+    desktop: false,
+    mobile: false,
+  });
+  const [simulate, setSimulate] = useState<Record<Strategy, SimulateResult | null>>({
+    desktop: null,
+    mobile: null,
+  });
+  const [simulateLoading, setSimulateLoading] = useState<Record<Strategy, boolean>>({
     desktop: false,
     mobile: false,
   });
@@ -188,6 +199,29 @@ export default function Home() {
     []
   );
 
+  // Simulação por perfil de conexão (Wi-Fi/4G/3G) — sob demanda, só quando o
+  // usuário pede no modal de desempenho (não dispara sozinha a cada
+  // auditoria, já que roda 4 cargas completas da página).
+  const loadSimulate = useCallback(
+    async (u: string, strat: Strategy) => {
+      setSimulateLoading((prev) => (prev[strat] ? prev : { ...prev, [strat]: true }));
+      try {
+        const res = await fetch("/api/simulate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: u, strategy: strat }),
+        });
+        const data: SimulateResult = await res.json();
+        setSimulate((prev) => ({ ...prev, [strat]: data }));
+      } catch {
+        setSimulate((prev) => ({ ...prev, [strat]: { strategy: strat, profiles: [] } }));
+      } finally {
+        setSimulateLoading((prev) => ({ ...prev, [strat]: false }));
+      }
+    },
+    []
+  );
+
   const loadImages = useCallback(async (u: string) => {
     setImagesLoading(true);
     try {
@@ -247,6 +281,7 @@ export default function Home() {
     setResult(null);
     setPerf({ desktop: null, mobile: null });
     setRealLoad({ desktop: null, mobile: null });
+    setSimulate({ desktop: null, mobile: null });
     setImages(null);
     setSeo(null);
     setSeoFullSite(false);
@@ -516,6 +551,19 @@ export default function Home() {
                     if (auditedUrl) loadSeo(auditedUrl, next);
                   }}
                 />
+              ) : activeItem.view === "performance" ? (
+                <PerformanceView
+                  auditedUrl={auditedUrl}
+                  strategy={strategy}
+                  perf={perf}
+                  perfLoading={perfLoading}
+                  realLoad={realLoad}
+                  realLoadLoading={realLoadLoading}
+                  simulate={simulate}
+                  simulateLoading={simulateLoading}
+                  onSimulate={(strat) => loadSimulate(auditedUrl, strat)}
+                  onStrategy={switchStrategy}
+                />
               ) : (
                 <CategoryView
                   category={result.categories.find((c) => c.id === activeItem.view)}
@@ -708,7 +756,6 @@ function Overview({
   onStrategy: (s: Strategy) => void;
   onOpenView: (v: string) => void;
 }) {
-  const [reportOpen, setReportOpen] = useState(false);
   const current = perf[strategy];
   const currentReal = realLoad[strategy];
   const activeIssues = result.linkIssues.filter((it) => !dismissed.has(issueKey(it)));
@@ -735,14 +782,14 @@ function Overview({
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "3px 20px" }}>
           <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>Desempenho</span>
-          <Gauge score={current?.score ?? null} loading={perfLoading[strategy]} onClick={() => setReportOpen(true)} />
+          <Gauge score={current?.score ?? null} loading={perfLoading[strategy]} onClick={() => onOpenView("performance")} />
           {perfLoading[strategy] ? (
             <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>Analisando…</span>
           ) : (current && current.score !== null) || currentReal ? (
             // Mesmo sem nota do Lighthouse (ex.: PageSpeed com rate-limit), o
             // relatório continua acessível — ele também mostra o tempo real
             // de carregamento, que é medido de forma independente.
-            <button type="button" onClick={() => setReportOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "var(--support-teal-base)", textDecoration: "underline" }}>
+            <button type="button" onClick={() => onOpenView("performance")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "var(--support-teal-base)", textDecoration: "underline" }}>
               {current && current.score !== null ? "Ver relatório" : "Ver tempo real"}
             </button>
           ) : null}
@@ -753,19 +800,6 @@ function Overview({
           <RealLoadStat loading={realLoadLoading[strategy]} data={currentReal} />
         </div>
       </div>
-
-      {reportOpen && (
-        <PerfModal
-          auditedUrl={auditedUrl}
-          strategy={strategy}
-          perf={perf}
-          perfLoading={perfLoading}
-          realLoad={realLoad}
-          realLoadLoading={realLoadLoading}
-          onStrategy={onStrategy}
-          onClose={() => setReportOpen(false)}
-        />
-      )}
 
       <Divider />
 
@@ -877,6 +911,77 @@ function RealLoadBreakdown({
         </div>
       ) : (
         <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>—</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Simula o carregamento sob perfis de conexão típicos (Wi-Fi/4G/3G), rodando
+ * localmente via Puppeteer — sem depender do PageSpeed. Sob demanda (o
+ * usuário clica pra rodar), já que são 4 cargas completas da página em
+ * sequência e pode levar bem mais que as outras medições.
+ */
+function ConnectionSimulation({
+  loading,
+  data,
+  strategy,
+  onSimulate,
+}: {
+  loading: boolean;
+  data: SimulateResult | null;
+  strategy: Strategy;
+  onSimulate: () => void;
+}) {
+  return (
+    <div>
+      <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 6px" }}>
+        Simulação por tipo de conexão ({strategy === "mobile" ? "mobile" : "desktop"})
+      </h3>
+      <p style={{ fontSize: 12, color: "var(--text-subtle)", margin: "0 0 10px" }}>
+        Simula o carregamento sob perfis de rede típicos (Wi-Fi, 4G, 3G rápido, 3G lento), rodando
+        localmente — sem depender do PageSpeed. Pode levar até ~1 min (o perfil &ldquo;3G lento&rdquo; é,
+        de propósito, bem lento).
+      </p>
+      {loading ? (
+        <LoadingInline text="Simulando carregamento em cada conexão… pode levar até 1 min." size={16} />
+      ) : !data ? (
+        <button
+          type="button"
+          onClick={onSimulate}
+          style={{ background: "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" }}
+        >
+          Simular carregamento por conexão
+        </button>
+      ) : data.profiles.length === 0 ? (
+        <p style={{ fontSize: 13, color: "#dc2626", margin: 0 }}>Falha ao simular o carregamento.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {data.profiles.map((p) => (
+            <div
+              key={p.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                background: "var(--surface-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 10,
+                padding: "10px 14px",
+              }}
+            >
+              <span style={{ fontSize: 14, color: "var(--text-default)" }}>{p.label}</span>
+              {p.error ? (
+                <span style={{ fontSize: 12, color: "#dc2626" }}>{p.error}</span>
+              ) : (
+                <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)" }}>
+                  {formatDuration(p.loadMs) ?? "—"}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1487,7 +1592,7 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
   );
 }
 
-/* ---------- Modal de relatório de desempenho (estilo PageSpeed) ---------- */
+/* ---------- Aba: Relatório de desempenho (Lighthouse + tempo real + simulação) ---------- */
 const RATING_COLOR: Record<Rating, string> = {
   good: "#16a34a",
   average: "#d97706",
@@ -1499,15 +1604,17 @@ const RATING_LABEL: Record<Rating, string> = {
   poor: "Ruim",
 };
 
-function PerfModal({
+function PerformanceView({
   auditedUrl,
   strategy,
   perf,
   perfLoading,
   realLoad,
   realLoadLoading,
+  simulate,
+  simulateLoading,
+  onSimulate,
   onStrategy,
-  onClose,
 }: {
   auditedUrl: string;
   strategy: Strategy;
@@ -1515,129 +1622,105 @@ function PerfModal({
   perfLoading: Record<Strategy, boolean>;
   realLoad: Record<Strategy, RealLoadResult | null>;
   realLoadLoading: Record<Strategy, boolean>;
+  simulate: Record<Strategy, SimulateResult | null>;
+  simulateLoading: Record<Strategy, boolean>;
+  onSimulate: (s: Strategy) => void;
   onStrategy: (s: Strategy) => void;
-  onClose: () => void;
 }) {
   const current = perf[strategy];
   const loading = perfLoading[strategy];
   const currentReal = realLoad[strategy];
+  const currentSimulate = simulate[strategy];
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.45)",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        padding: 24,
-        zIndex: 50,
-        overflowY: "auto",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "var(--bg-lightest)",
-          borderRadius: 16,
-          width: "100%",
-          maxWidth: 640,
-          padding: 24,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 20,
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 20, color: "var(--text-default)", margin: 0 }}>
-              Relatório de desempenho
-            </h2>
-            <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: "4px 0 0", wordBreak: "break-all" }}>{auditedUrl}</p>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Fechar" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, lineHeight: 1, color: "var(--text-subtle)" }}>
-            ×
-          </button>
-        </div>
-
-        {/* Toggle */}
-        <DeviceToggle strategy={strategy} onStrategy={onStrategy} />
-
-        <RealLoadBreakdown loading={realLoadLoading[strategy]} data={currentReal} strategy={strategy} />
-
-        {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "24px 0" }}>
-            <Gauge score={null} loading />
-            <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>Analisando {strategy === "mobile" ? "mobile" : "desktop"}…</span>
-          </div>
-        ) : current?.error ? (
-          <p style={{ fontSize: 14, color: "#dc2626" }}>{current.error}</p>
-        ) : current && current.score !== null ? (
-          <>
-            {/* Score */}
-            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-              <Gauge score={current.score} loading={false} />
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: scoreColor(current.score) }}>
-                  {current.score >= 90 ? "Bom" : current.score >= 50 ? "Precisa melhorar" : "Ruim"}
-                </div>
-                <div style={{ fontSize: 13, color: "var(--text-subtle)", maxWidth: 360, marginTop: 4 }}>
-                  Nota de desempenho ({strategy === "mobile" ? "Mobile" : "Desktop"}), baseada no Lighthouse do Google PageSpeed.
-                </div>
-              </div>
-            </div>
-
-            {/* Core Web Vitals */}
-            <div>
-              <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 10px" }}>Métricas</h3>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-                {current.metrics.map((m) => {
-                  const color = m.rating ? RATING_COLOR[m.rating] : "var(--text-subtle)";
-                  return (
-                    <div key={m.id} style={{ background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 12 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ width: 9, height: 9, borderRadius: 2, background: color, flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>{m.label}</span>
-                      </div>
-                      <div style={{ fontSize: 20, fontWeight: 600, color, marginTop: 6 }}>{m.display}</div>
-                      {m.rating && <div style={{ fontSize: 11, color: "var(--text-subtle)", marginTop: 2 }}>{RATING_LABEL[m.rating]}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Oportunidades */}
-            {current.opportunities.length > 0 && (
-              <div>
-                <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 10px" }}>
-                  Oportunidades de melhoria
-                </h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {current.opportunities.map((o) => (
-                    <div key={o.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "10px 14px" }}>
-                      <span style={{ fontSize: 14, color: "var(--text-default)" }}>{o.title}</span>
-                      <span style={{ fontSize: 13, color: "#d97706", whiteSpace: "nowrap", fontWeight: 600 }}>
-                        {o.display || `~${(o.savingsMs / 1000).toFixed(1)}s`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <p style={{ fontSize: 11, color: "var(--text-subtle)", margin: 0 }}>
-              Verde = bom · Amarelo = precisa melhorar · Vermelho = ruim (limiares do Lighthouse).
-            </p>
-          </>
-        ) : (
-          <p style={{ fontSize: 14, color: "var(--text-subtle)" }}>Sem dados de desempenho.</p>
-        )}
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+          Relatório de desempenho
+        </h1>
+        <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: "4px 0 0", wordBreak: "break-all" }}>{auditedUrl}</p>
       </div>
+
+      {/* Toggle */}
+      <DeviceToggle strategy={strategy} onStrategy={onStrategy} />
+
+      <RealLoadBreakdown loading={realLoadLoading[strategy]} data={currentReal} strategy={strategy} />
+
+      <ConnectionSimulation
+        loading={simulateLoading[strategy]}
+        data={currentSimulate}
+        strategy={strategy}
+        onSimulate={() => onSimulate(strategy)}
+      />
+
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "24px 0" }}>
+          <Gauge score={null} loading />
+          <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>Analisando {strategy === "mobile" ? "mobile" : "desktop"}…</span>
+        </div>
+      ) : current?.error ? (
+        <p style={{ fontSize: 14, color: "#dc2626" }}>{current.error}</p>
+      ) : current && current.score !== null ? (
+        <>
+          {/* Score */}
+          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            <Gauge score={current.score} loading={false} />
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: scoreColor(current.score) }}>
+                {current.score >= 90 ? "Bom" : current.score >= 50 ? "Precisa melhorar" : "Ruim"}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-subtle)", maxWidth: 360, marginTop: 4 }}>
+                Nota de desempenho ({strategy === "mobile" ? "Mobile" : "Desktop"}), baseada no Lighthouse do Google PageSpeed.
+              </div>
+            </div>
+          </div>
+
+          {/* Core Web Vitals */}
+          <div>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 10px" }}>Métricas</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+              {current.metrics.map((m) => {
+                const color = m.rating ? RATING_COLOR[m.rating] : "var(--text-subtle)";
+                return (
+                  <div key={m.id} style={{ background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 9, height: 9, borderRadius: 2, background: color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, color: "var(--text-subtle)" }}>{m.label}</span>
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 600, color, marginTop: 6 }}>{m.display}</div>
+                    {m.rating && <div style={{ fontSize: 11, color: "var(--text-subtle)", marginTop: 2 }}>{RATING_LABEL[m.rating]}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Oportunidades */}
+          {current.opportunities.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 10px" }}>
+                Oportunidades de melhoria
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {current.opportunities.map((o) => (
+                  <div key={o.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "10px 14px" }}>
+                    <span style={{ fontSize: 14, color: "var(--text-default)" }}>{o.title}</span>
+                    <span style={{ fontSize: 13, color: "#d97706", whiteSpace: "nowrap", fontWeight: 600 }}>
+                      {o.display || `~${(o.savingsMs / 1000).toFixed(1)}s`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p style={{ fontSize: 11, color: "var(--text-subtle)", margin: 0 }}>
+            Verde = bom · Amarelo = precisa melhorar · Vermelho = ruim (limiares do Lighthouse).
+          </p>
+        </>
+      ) : (
+        <p style={{ fontSize: 14, color: "var(--text-subtle)" }}>Sem dados de desempenho.</p>
+      )}
     </div>
   );
 }
