@@ -16,6 +16,7 @@ Cada arquivo corresponde a uma categoria/feature do produto:
 | [linkaudit.md](linkaudit.md) | LinkAudit avançado (multi-viewport) | [`src/lib/linkaudit.ts`](../../src/lib/linkaudit.ts), [`src/lib/linkaudit-core-b64.ts`](../../src/lib/linkaudit-core-b64.ts) |
 | [performance.md](performance.md) | Performance (PageSpeed/Lighthouse) | [`src/lib/performance.ts`](../../src/lib/performance.ts) |
 | [spelling.md](spelling.md) | Erros de digitação (typos, dicionário em inglês) | [`src/lib/spelling.ts`](../../src/lib/spelling.ts) |
+| [uppercase.md](uppercase.md) | CAIXA ALTA no conteúdo (exceto siglas) | [`src/lib/uppercase.ts`](../../src/lib/uppercase.ts) |
 
 ## Convenções gerais
 

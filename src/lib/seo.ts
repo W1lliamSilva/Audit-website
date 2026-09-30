@@ -5,8 +5,10 @@
 import * as cheerio from "cheerio";
 import type { CheckResult } from "./audit";
 import { findSpellingIssues, type SpellingIssue } from "./spelling";
+import { findUppercaseIssues, type UppercaseIssue } from "./uppercase";
 
 export type { SpellingIssue } from "./spelling";
+export type { UppercaseIssue } from "./uppercase";
 
 const USER_AGENT =
   "Mozilla/5.0 (compatible; SiteAuditTool/1.0; +https://github.com/W1lliamSilva/Audit-website)";
@@ -68,6 +70,8 @@ export interface PageSeo {
   headingIssues: HeadingIssue[];
   /** Palavras sinalizadas por erro de digitação (dicionário em inglês). */
   spellingIssues: SpellingIssue[];
+  /** Trechos em CAIXA ALTA no conteúdo, com exceção de siglas curtas. */
+  uppercaseIssues: UppercaseIssue[];
   /** Detalhe estruturado de por que a página não pôde ser digitalizada (quando houve falha). */
   scanError?: ScanError;
   error?: string;
@@ -253,6 +257,7 @@ async function seoChecksFromHtml(html: string): Promise<{
   headings: HeadingItem[];
   headingIssues: HeadingIssue[];
   spellingIssues: SpellingIssue[];
+  uppercaseIssues: UppercaseIssue[];
 }> {
   const $ = cheerio.load(html);
   const checks: CheckResult[] = [];
@@ -293,7 +298,8 @@ async function seoChecksFromHtml(html: string): Promise<{
   const headings = extractHeadings($);
   const headingIssues = analyseHeadings(headings);
   const spellingIssues = await findSpellingIssues(html);
-  return { checks, totals, headings, headingIssues, spellingIssues };
+  const uppercaseIssues = await findUppercaseIssues(html);
+  return { checks, totals, headings, headingIssues, spellingIssues, uppercaseIssues };
 }
 
 export async function getSeoForPages(rawUrl: string, opts: SeoOptions = {}): Promise<SeoResult> {
@@ -345,13 +351,14 @@ export async function getSeoForPages(rawUrl: string, opts: SeoOptions = {}): Pro
           headings: [],
           headingIssues: [],
           spellingIssues: [],
+          uppercaseIssues: [],
           scanError: scanError ?? { kind: "network-error", message: "Não foi possível carregar a página." },
           error: scanError?.message ?? "Não foi possível carregar a página.",
         };
         continue;
       }
-      const { checks, totals, headings, headingIssues, spellingIssues } = await seoChecksFromHtml(html);
-      pages[i] = { url: pageUrl, checks, totals, headings, headingIssues, spellingIssues };
+      const { checks, totals, headings, headingIssues, spellingIssues, uppercaseIssues } = await seoChecksFromHtml(html);
+      pages[i] = { url: pageUrl, checks, totals, headings, headingIssues, spellingIssues, uppercaseIssues };
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));

@@ -22,10 +22,11 @@ export interface SpellingIssue {
 const LANDMARKS = ["header", "nav", "main", "footer", "aside", "form", "section", "article"];
 // Elementos cujo conteúdo não é texto de leitura (código, scripts, estilos…)
 // — remover antes de extrair texto, senão viram "palavras" e geram ruído.
-const SKIP_SELECTOR = "script, style, noscript, code, pre, template, svg";
+// Exportado: reaproveitado por outras checagens de texto (ver uppercase.ts).
+export const TEXT_SKIP_SELECTOR = "script, style, noscript, code, pre, template, svg";
 // Só checa elementos "folha" de texto — evita duplicar a mesma frase quando
 // ela também aparece no texto agregado de um ancestral (ex.: <main> inteiro).
-const TEXT_SELECTOR = "h1, h2, h3, h4, h5, h6, p, li, a, button, span, td, th, figcaption, blockquote, label";
+export const TEXT_LEAF_SELECTOR = "h1, h2, h3, h4, h5, h6, p, li, a, button, span, td, th, figcaption, blockquote, label";
 const WORD_RE = /[A-Za-z']+/g;
 const MAX_ISSUES = 40;
 const CONTEXT_RADIUS = 30;
@@ -42,7 +43,7 @@ const KNOWN_WORDS = [
   "plugins", "responsive", "wifi", "ux", "ui",
 ];
 
-function locationOf($: cheerio.CheerioAPI, el: Element): string {
+export function locationOf($: cheerio.CheerioAPI, el: Element): string {
   const $land = $(el).closest(LANDMARKS.join(","));
   const tag = (el.tagName ?? "elemento").toLowerCase();
   const id = $(el).attr("id");
@@ -56,7 +57,8 @@ function locationOf($: cheerio.CheerioAPI, el: Element): string {
 }
 
 let checkerPromise: Promise<ReturnType<typeof nspell>> | null = null;
-function getSpellChecker(): Promise<ReturnType<typeof nspell>> {
+/** Compartilhado com outras checagens de texto (ver uppercase.ts) — carrega o dicionário só uma vez. */
+export function getSpellChecker(): Promise<ReturnType<typeof nspell>> {
   if (!checkerPromise) {
     checkerPromise = Promise.resolve().then(() => {
       const spell = nspell({
@@ -79,12 +81,12 @@ function isCheckable(word: string): boolean {
 export async function findSpellingIssues(html: string): Promise<SpellingIssue[]> {
   const spell = await getSpellChecker();
   const $ = cheerio.load(html);
-  $(SKIP_SELECTOR).remove();
+  $(TEXT_SKIP_SELECTOR).remove();
 
   const issues: SpellingIssue[] = [];
   const seen = new Set<string>();
 
-  const elements = $(TEXT_SELECTOR).toArray();
+  const elements = $(TEXT_LEAF_SELECTOR).toArray();
   for (const el of elements) {
     if (issues.length >= MAX_ISSUES) break;
     const $el = $(el);

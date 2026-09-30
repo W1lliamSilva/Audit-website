@@ -17,7 +17,7 @@ import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit"
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
 import type { RealLoadResult } from "@/lib/realload";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
-import type { SeoResult, PageSeo, HeadingItem, HeadingIssue, ScanError, ScanErrorKind, SpellingIssue } from "@/lib/seo";
+import type { SeoResult, PageSeo, HeadingItem, HeadingIssue, ScanError, ScanErrorKind, SpellingIssue, UppercaseIssue } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
 import type { LinkAuditResult, LinkAuditFinding } from "@/lib/linkaudit";
 import type { InspectResult } from "@/lib/inspect";
@@ -1665,7 +1665,7 @@ function SeoView({
   onToggleFullSite: (next: boolean) => void;
 }) {
   const [tab, setTab] = useState(0);
-  const [subTab, setSubTab] = useState<"checks" | "headings" | "spelling">("checks");
+  const [subTab, setSubTab] = useState<"checks" | "headings" | "spelling" | "uppercase">("checks");
 
   const fullSiteToggle = (
     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-subtle)", cursor: loading ? "default" : "pointer" }}>
@@ -1795,7 +1795,7 @@ function SeoView({
                 <span style={{ color: "#dc2626" }}>✕ {current.totals.fail} falhas</span>
               </div>
 
-              {/* Sub-abas: Checagens de SEO / Estrutura de headings / Erros de digitação */}
+              {/* Sub-abas: Checagens de SEO / Estrutura de headings / Erros de digitação / CAIXA ALTA */}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {(
                   [
@@ -1807,6 +1807,10 @@ function SeoView({
                     {
                       key: "spelling",
                       label: `Erros de digitação${current.spellingIssues.length > 0 ? ` (${current.spellingIssues.length})` : ""}`,
+                    },
+                    {
+                      key: "uppercase",
+                      label: `CAIXA ALTA${current.uppercaseIssues.length > 0 ? ` (${current.uppercaseIssues.length})` : ""}`,
                     },
                   ] as const
                 ).map((t) => {
@@ -1856,8 +1860,10 @@ function SeoView({
                 </div>
               ) : subTab === "headings" ? (
                 <HeadingsTree headings={current.headings} issues={current.headingIssues} />
-              ) : (
+              ) : subTab === "spelling" ? (
                 <SpellingIssuesView issues={current.spellingIssues} />
+              ) : (
+                <UppercaseIssuesView issues={current.uppercaseIssues} />
               )}
             </>
           )}
@@ -1939,6 +1945,48 @@ function SpellingIssuesView({ issues }: { issues: SpellingIssue[] }) {
                   ))}
                 </span>
               )}
+              <Pill text={issue.location} />
+            </div>
+            <p style={{ margin: 0, fontSize: 14, color: "var(--text-muted)" }}>{issue.context}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- CAIXA ALTA (texto digitado em maiúsculas, exceto siglas) ---------- */
+function UppercaseIssuesView({ issues }: { issues: UppercaseIssue[] }) {
+  if (issues.length === 0) {
+    return <Empty text="Nenhum texto em CAIXA ALTA encontrado (fora siglas) 🎉" />;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>
+        Texto digitado em CAIXA ALTA no conteúdo, em vez de texto normal estilizado via CSS
+        (<code>text-transform: uppercase</code>). Siglas curtas (SEO, API, CEO…) ficam de fora de propósito.
+        Leitores de tela podem soletrar caixa alta letra a letra, como se fosse sigla — por isso importa.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {issues.map((issue, i) => (
+          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: 100,
+                  color: "#fff",
+                  background: "#d97706",
+                  wordBreak: "break-word",
+                }}
+              >
+                {issue.text}
+              </span>
+              <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>
+                sugestão: <strong style={{ color: "var(--text-default)" }}>{issue.suggestion}</strong>
+              </span>
               <Pill text={issue.location} />
             </div>
             <p style={{ margin: 0, fontSize: 14, color: "var(--text-muted)" }}>{issue.context}</p>
