@@ -86,13 +86,10 @@ Importante: em planos de hospedagem sem suporte a execuções longas (ex.:
 Vercel Hobby), a plataforma pode encerrar a função antes mesmo dos 300s
 configurados — o orçamento de tempo interno reduz o risco, mas não elimina.
 
-## Erros de digitalização (multi-page, aba "Erros de digitalização")
+## Erros de digitalização (por página, sem aba dedicada)
 
 Quando `fetchPage` não consegue obter e ler o HTML de uma página, o motivo
-exato fica registrado em `PageSeo.scanError` (`ScanErrorKind`) e a página
-aparece agregada na aba "Erros de digitalização" — junto com todas as outras
-páginas que falharam, independente de qual página esteja selecionada nas
-abas/pills no topo:
+exato fica registrado em `PageSeo.scanError` (`ScanErrorKind`):
 
 | `kind` | Quando acontece |
 |---|---|
@@ -101,11 +98,17 @@ abas/pills no topo:
 | `network-error` | Falha de conexão — DNS, TLS ou a conexão foi recusada. |
 | `invalid-content-type` | O servidor respondeu OK, mas o `content-type` da resposta não contém `html` (ex.: um link interno que aponta para uma imagem ou um JSON). |
 
-Uma página com `scanError` não tem `checks`/`headings` (ambos ficam vazios) —
-as sub-abas "Checagens" e "Estrutura de headings" mostram uma mensagem
-apontando para "Erros de digitalização" em vez de uma lista vazia enganosa.
-O ponto (dot) da página nas pills do topo fica roxo para diferenciar "não deu
-pra ler a página" de "leu, mas achou problemas" (vermelho/amarelo).
+Uma página com `scanError` não tem `checks`/`headings`/`spellingIssues`
+(todos ficam vazios). Na UI, isso **não** vira uma aba separada — a primeira
+versão tinha uma aba agregada "Erros de digitalização", mas o ponto (dot)
+roxo na pill da página já sinaliza o problema, e uma aba inteira só para
+listar de novo a mesma informação não agregava nada. Em vez disso: ao
+selecionar a página com problema, as sub-abas "Checagens"/"Estrutura de
+headings"/"Erros de digitação" somem (não fazem sentido para uma página que
+não carregou) e um aviso inline (`ScanErrorNotice` em `page.tsx`) mostra o
+tipo do erro e a mensagem diretamente. O ponto roxo nas pills do topo
+diferencia "não deu pra ler a página" (`scanError`) de "leu, mas achou
+problemas" (vermelho/amarelo, baseado em `totals.fail`/`totals.warn`).
 
 ## Pontuação
 

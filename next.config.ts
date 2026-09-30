@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
     "/api/screenshot": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/linkaudit": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/inspect": ["./node_modules/@sparticuz/chromium/bin/**"],
+    "/api/realload": ["./node_modules/@sparticuz/chromium/bin/**"],
   },
 };
 

@@ -15,6 +15,7 @@ import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { Atom } from "loading-dev";
 import type { AuditResult, Category, CheckStatus, LinkIssue } from "@/lib/audit";
 import type { PerfResult, Strategy, Rating } from "@/lib/performance";
+import type { RealLoadResult } from "@/lib/realload";
 import type { ImageIssue, ImagesResult } from "@/lib/images";
 import type { SeoResult, PageSeo, HeadingItem, HeadingIssue, ScanError, ScanErrorKind, SpellingIssue } from "@/lib/seo";
 import type { CompressResult } from "@/lib/compress";
@@ -115,6 +116,14 @@ export default function Home() {
     desktop: false,
     mobile: false,
   });
+  const [realLoad, setRealLoad] = useState<Record<Strategy, RealLoadResult | null>>({
+    desktop: null,
+    mobile: null,
+  });
+  const [realLoadLoading, setRealLoadLoading] = useState<Record<Strategy, boolean>>({
+    desktop: false,
+    mobile: false,
+  });
 
   const loadPerf = useCallback(
     async (u: string, strat: Strategy) => {
@@ -141,6 +150,39 @@ export default function Home() {
         }));
       } finally {
         setPerfLoading((prev) => ({ ...prev, [strat]: false }));
+      }
+    },
+    []
+  );
+
+  // Tempo real de carregamento (sem simulação), complementar à nota do
+  // Lighthouse acima — ver src/lib/realload.ts para o porquê dos dois existirem.
+  const loadRealLoad = useCallback(
+    async (u: string, strat: Strategy) => {
+      setRealLoadLoading((prev) => (prev[strat] ? prev : { ...prev, [strat]: true }));
+      try {
+        const res = await fetch("/api/realload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: u, strategy: strat }),
+        });
+        const data: RealLoadResult = await res.json();
+        setRealLoad((prev) => ({ ...prev, [strat]: data }));
+      } catch {
+        setRealLoad((prev) => ({
+          ...prev,
+          [strat]: {
+            strategy: strat,
+            ttfbMs: null,
+            domContentLoadedMs: null,
+            loadMs: null,
+            firstPaintMs: null,
+            firstContentfulPaintMs: null,
+            error: "Falha ao medir o tempo real de carregamento.",
+          },
+        }));
+      } finally {
+        setRealLoadLoading((prev) => ({ ...prev, [strat]: false }));
       }
     },
     []
@@ -204,6 +246,7 @@ export default function Home() {
     setError(null);
     setResult(null);
     setPerf({ desktop: null, mobile: null });
+    setRealLoad({ desktop: null, mobile: null });
     setImages(null);
     setSeo(null);
     setSeoFullSite(false);
@@ -220,8 +263,9 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error ?? "Falha na auditoria.");
       setResult(data as AuditResult);
       setAuditedUrl((data as AuditResult).finalUrl);
-      // Dispara medição de desempenho e análise de imagens (DOM renderizado).
+      // Dispara medição de desempenho (simulada e real) e análise de imagens (DOM renderizado).
       loadPerf((data as AuditResult).finalUrl, "desktop");
+      loadRealLoad((data as AuditResult).finalUrl, "desktop");
       loadImages((data as AuditResult).finalUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");
@@ -234,6 +278,9 @@ export default function Home() {
     setStrategy(strat);
     if (auditedUrl && !perf[strat] && !perfLoading[strat]) {
       loadPerf(auditedUrl, strat);
+    }
+    if (auditedUrl && !realLoad[strat] && !realLoadLoading[strat]) {
+      loadRealLoad(auditedUrl, strat);
     }
   }
 
@@ -416,6 +463,8 @@ export default function Home() {
                   strategy={strategy}
                   perf={perf}
                   perfLoading={perfLoading}
+                  realLoad={realLoad}
+                  realLoadLoading={realLoadLoading}
                   images={images}
                   imagesLoading={imagesLoading}
                   dismissed={dismissed}
@@ -636,6 +685,8 @@ function Overview({
   strategy,
   perf,
   perfLoading,
+  realLoad,
+  realLoadLoading,
   images,
   imagesLoading,
   dismissed,
@@ -648,6 +699,8 @@ function Overview({
   strategy: Strategy;
   perf: Record<Strategy, PerfResult | null>;
   perfLoading: Record<Strategy, boolean>;
+  realLoad: Record<Strategy, RealLoadResult | null>;
+  realLoadLoading: Record<Strategy, boolean>;
   images: ImagesResult | null;
   imagesLoading: boolean;
   dismissed: Set<string>;
@@ -657,6 +710,7 @@ function Overview({
 }) {
   const [reportOpen, setReportOpen] = useState(false);
   const current = perf[strategy];
+  const currentReal = realLoad[strategy];
   const activeIssues = result.linkIssues.filter((it) => !dismissed.has(issueKey(it)));
   const imgsWithoutAlt = images?.withoutAlt ?? [];
 
@@ -684,15 +738,19 @@ function Overview({
           <Gauge score={current?.score ?? null} loading={perfLoading[strategy]} onClick={() => setReportOpen(true)} />
           {perfLoading[strategy] ? (
             <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>Analisando…</span>
-          ) : current && current.score !== null ? (
+          ) : (current && current.score !== null) || currentReal ? (
+            // Mesmo sem nota do Lighthouse (ex.: PageSpeed com rate-limit), o
+            // relatório continua acessível — ele também mostra o tempo real
+            // de carregamento, que é medido de forma independente.
             <button type="button" onClick={() => setReportOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "var(--support-teal-base)", textDecoration: "underline" }}>
-              Ver relatório
+              {current && current.score !== null ? "Ver relatório" : "Ver tempo real"}
             </button>
           ) : null}
           <DeviceToggle strategy={strategy} onStrategy={onStrategy} />
           {current?.error && (
             <span style={{ fontSize: 11, color: "#dc2626", maxWidth: 170, textAlign: "center" }}>{current.error}</span>
           )}
+          <RealLoadStat loading={realLoadLoading[strategy]} data={currentReal} />
         </div>
       </div>
 
@@ -702,6 +760,8 @@ function Overview({
           strategy={strategy}
           perf={perf}
           perfLoading={perfLoading}
+          realLoad={realLoad}
+          realLoadLoading={realLoadLoading}
           onStrategy={onStrategy}
           onClose={() => setReportOpen(false)}
         />
@@ -734,6 +794,90 @@ function Overview({
           imgsWithoutAlt.slice(0, 2).map((im, i) => <ImageCard key={i} image={im} pageUrl={images?.pageUrl ?? auditedUrl} />)
         )}
       </Section>
+    </div>
+  );
+}
+
+function formatDuration(ms: number | null): string | null {
+  if (ms === null) return null;
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Tempo real de carregamento agora — sem simulação, na conexão do servidor.
+ * Complementa (não substitui) a nota do Lighthouse: um site pode ter nota
+ * baixa e ainda assim carregar rapidíssimo na prática, e vice-versa, porque
+ * o Lighthouse testa contra condições padronizadas mais lentas de propósito.
+ */
+function RealLoadStat({ loading, data }: { loading: boolean; data: RealLoadResult | null }) {
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-subtle)" }}>
+        <Loader size={11} /> medindo tempo real…
+      </div>
+    );
+  }
+  if (!data) return null;
+  if (data.error) {
+    return <span style={{ fontSize: 11, color: "#dc2626", maxWidth: 170, textAlign: "center" }}>{data.error}</span>;
+  }
+  const display = formatDuration(data.loadMs);
+  if (!display) return null;
+  return (
+    <span
+      style={{ fontSize: 11, color: "var(--text-subtle)", textAlign: "center" }}
+      title="Tempo real de carregamento agora, sem simulação nem limitação de rede/dispositivo — pode ser bem diferente da nota do Lighthouse acima, que testa em condições padronizadas mais lentas de propósito."
+    >
+      Tempo real agora: <strong style={{ color: "var(--text-default)" }}>{display}</strong>
+    </span>
+  );
+}
+
+/** Detalhamento do tempo real de carregamento, dentro do modal de desempenho. */
+function RealLoadBreakdown({
+  loading,
+  data,
+  strategy,
+}: {
+  loading: boolean;
+  data: RealLoadResult | null;
+  strategy: Strategy;
+}) {
+  return (
+    <div>
+      <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-default)", margin: "0 0 6px" }}>
+        Tempo real de carregamento agora ({strategy === "mobile" ? "mobile" : "desktop"})
+      </h3>
+      <p style={{ fontSize: 12, color: "var(--text-subtle)", margin: "0 0 10px" }}>
+        Medido agora mesmo, sem simulação de rede/dispositivo lento — diferente da nota do Lighthouse
+        abaixo, que testa contra condições padronizadas mais lentas de propósito. Os dois números podem
+        divergir bastante, e isso é esperado.
+      </p>
+      {loading ? (
+        <LoadingInline text="Medindo o tempo real de carregamento…" size={16} />
+      ) : data?.error ? (
+        <p style={{ fontSize: 13, color: "#dc2626", margin: 0 }}>{data.error}</p>
+      ) : data ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+          {(
+            [
+              ["Primeiro byte (TTFB)", data.ttfbMs],
+              ["Conteúdo pronto (DOMContentLoaded)", data.domContentLoadedMs],
+              ["Carregamento completo (load)", data.loadMs],
+              ["Primeira pintura de conteúdo (FCP)", data.firstContentfulPaintMs],
+            ] as const
+          ).map(([label, ms]) => (
+            <div key={label} style={{ background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 12, color: "var(--text-subtle)" }}>{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text-default)", marginTop: 4 }}>
+                {formatDuration(ms) ?? "—"}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>—</p>
+      )}
     </div>
   );
 }
@@ -1360,6 +1504,8 @@ function PerfModal({
   strategy,
   perf,
   perfLoading,
+  realLoad,
+  realLoadLoading,
   onStrategy,
   onClose,
 }: {
@@ -1367,11 +1513,14 @@ function PerfModal({
   strategy: Strategy;
   perf: Record<Strategy, PerfResult | null>;
   perfLoading: Record<Strategy, boolean>;
+  realLoad: Record<Strategy, RealLoadResult | null>;
+  realLoadLoading: Record<Strategy, boolean>;
   onStrategy: (s: Strategy) => void;
   onClose: () => void;
 }) {
   const current = perf[strategy];
   const loading = perfLoading[strategy];
+  const currentReal = realLoad[strategy];
 
   return (
     <div
@@ -1417,6 +1566,8 @@ function PerfModal({
 
         {/* Toggle */}
         <DeviceToggle strategy={strategy} onStrategy={onStrategy} />
+
+        <RealLoadBreakdown loading={realLoadLoading[strategy]} data={currentReal} strategy={strategy} />
 
         {loading ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "24px 0" }}>
@@ -1514,7 +1665,7 @@ function SeoView({
   onToggleFullSite: (next: boolean) => void;
 }) {
   const [tab, setTab] = useState(0);
-  const [subTab, setSubTab] = useState<"checks" | "headings" | "spelling" | "scan-errors">("checks");
+  const [subTab, setSubTab] = useState<"checks" | "headings" | "spelling">("checks");
 
   const fullSiteToggle = (
     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-subtle)", cursor: loading ? "default" : "pointer" }}>
@@ -1565,7 +1716,6 @@ function SeoView({
 
   const pages = seo.pages;
   const current = pages[Math.min(tab, pages.length - 1)];
-  const scanErrorPages = pages.filter((p) => p.scanError);
 
   function dotColor(p: PageSeo): string {
     if (p.scanError) return "#7c3aed";
@@ -1633,95 +1783,121 @@ function SeoView({
           <a href={current.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--support-teal-base)", wordBreak: "break-all" }}>
             {current.url}
           </a>
-          {!current.error && (
-            <div style={{ fontSize: 13 }}>
-              <span style={{ color: "#16a34a" }}>✓ {current.totals.pass} ok</span>{"  ·  "}
-              <span style={{ color: "#b45309" }}>! {current.totals.warn} avisos</span>{"  ·  "}
-              <span style={{ color: "#dc2626" }}>✕ {current.totals.fail} falhas</span>
-            </div>
-          )}
-
-          {/* Sub-abas: Checagens de SEO / Estrutura de headings / Erros de digitalização */}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {(
-              [
-                { key: "checks", label: "Checagens" },
-                {
-                  key: "headings",
-                  label: `Estrutura de headings${current.headingIssues.length > 0 ? ` (${current.headingIssues.length})` : ""}`,
-                },
-                {
-                  key: "spelling",
-                  label: `Erros de digitação${current.spellingIssues.length > 0 ? ` (${current.spellingIssues.length})` : ""}`,
-                },
-                {
-                  key: "scan-errors",
-                  label: `Erros de digitalização${scanErrorPages.length > 0 ? ` (${scanErrorPages.length})` : ""}`,
-                },
-              ] as const
-            ).map((t) => {
-              const activeSub = subTab === t.key;
-              return (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setSubTab(t.key)}
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 4,
-                    border: "none",
-                    cursor: "pointer",
-                    background: activeSub ? "var(--support-teal-light)" : "transparent",
-                    color: activeSub ? "var(--support-teal-base)" : "var(--text-subtle)",
-                    fontSize: 13,
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {subTab === "scan-errors" ? (
-            <ScanErrorsView
-              pages={scanErrorPages}
-              onOpenPage={(url) => {
-                const idx = pages.findIndex((p) => p.url === url);
-                if (idx >= 0) setTab(idx);
-                setSubTab("checks");
-              }}
-            />
-          ) : current.error ? (
-            <Empty text={`${current.error} Veja detalhes na aba "Erros de digitalização".`} />
-          ) : subTab === "checks" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {current.checks.map((check) => {
-                const meta = STATUS_META[check.status];
-                return (
-                  <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
-                    <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
-                      {meta.icon}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
-                      <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
-                      {check.details && check.details.length > 0 && (
-                        <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
-                          {check.details.map((d, i) => <li key={i}>{d}</li>)}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : subTab === "headings" ? (
-            <HeadingsTree headings={current.headings} issues={current.headingIssues} />
+          {current.error ? (
+            // Página não digitalizada — o ponto roxo na aba já sinaliza isso;
+            // aqui só o detalhe de por quê (ver ScanErrorNotice).
+            <ScanErrorNotice error={current.scanError} fallback={current.error} />
           ) : (
-            <SpellingIssuesView issues={current.spellingIssues} />
+            <>
+              <div style={{ fontSize: 13 }}>
+                <span style={{ color: "#16a34a" }}>✓ {current.totals.pass} ok</span>{"  ·  "}
+                <span style={{ color: "#b45309" }}>! {current.totals.warn} avisos</span>{"  ·  "}
+                <span style={{ color: "#dc2626" }}>✕ {current.totals.fail} falhas</span>
+              </div>
+
+              {/* Sub-abas: Checagens de SEO / Estrutura de headings / Erros de digitação */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(
+                  [
+                    { key: "checks", label: "Checagens" },
+                    {
+                      key: "headings",
+                      label: `Estrutura de headings${current.headingIssues.length > 0 ? ` (${current.headingIssues.length})` : ""}`,
+                    },
+                    {
+                      key: "spelling",
+                      label: `Erros de digitação${current.spellingIssues.length > 0 ? ` (${current.spellingIssues.length})` : ""}`,
+                    },
+                  ] as const
+                ).map((t) => {
+                  const activeSub = subTab === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setSubTab(t.key)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "none",
+                        cursor: "pointer",
+                        background: activeSub ? "var(--support-teal-light)" : "transparent",
+                        color: activeSub ? "var(--support-teal-base)" : "var(--text-subtle)",
+                        fontSize: 13,
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {subTab === "checks" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {current.checks.map((check) => {
+                    const meta = STATUS_META[check.status];
+                    return (
+                      <div key={check.id} style={{ display: "flex", gap: 12, padding: 14, background: "var(--surface-elevated)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+                        <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: "50%", background: meta.bg, color: meta.color, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+                          {meta.icon}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, color: "var(--text-default)" }}>{check.label}</div>
+                          <div style={{ color: "var(--text-muted)", fontSize: 14 }}>{check.message}</div>
+                          {check.details && check.details.length > 0 && (
+                            <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--text-subtle)", fontSize: 13, wordBreak: "break-all" }}>
+                              {check.details.map((d, i) => <li key={i}>{d}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : subTab === "headings" ? (
+                <HeadingsTree headings={current.headings} issues={current.headingIssues} />
+              ) : (
+                <SpellingIssuesView issues={current.spellingIssues} />
+              )}
+            </>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Detalhe de por que uma página não pôde ser digitalizada (ver ScanError em @/lib/seo). */
+function ScanErrorNotice({ error, fallback }: { error?: ScanError; fallback: string }) {
+  if (!error) return <Empty text={fallback} />;
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        padding: 14,
+        background: "rgba(124,58,237,0.06)",
+        border: "1px solid rgba(124,58,237,0.25)",
+        borderRadius: 8,
+      }}
+    >
+      <span
+        style={{
+          alignSelf: "flex-start",
+          fontSize: 11,
+          fontWeight: 700,
+          padding: "2px 8px",
+          borderRadius: 100,
+          color: "#fff",
+          background: SCAN_ERROR_COLOR[error.kind],
+          whiteSpace: "nowrap",
+        }}
+      >
+        {SCAN_ERROR_LABEL[error.kind]}
+        {error.status ? ` ${error.status}` : ""}
+      </span>
+      <p style={{ margin: 0, fontSize: 14, color: "var(--text-subtle)" }}>{error.message}</p>
     </div>
   );
 }
@@ -1786,59 +1962,6 @@ const SCAN_ERROR_COLOR: Record<ScanErrorKind, string> = {
   "network-error": "#dc2626",
   "invalid-content-type": "#7c3aed",
 };
-
-function ScanErrorsView({ pages, onOpenPage }: { pages: PageSeo[]; onOpenPage: (url: string) => void }) {
-  if (pages.length === 0) {
-    return <Empty text="Nenhum erro de digitalização — todas as páginas foram lidas com sucesso 🎉" />;
-  }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <p style={{ fontSize: 13, color: "var(--text-subtle)", margin: 0 }}>
-        {pages.length} página{pages.length !== 1 ? "s" : ""} não p{pages.length !== 1 ? "uderam" : "ôde"} ser digitalizada{pages.length !== 1 ? "s" : ""}.
-      </p>
-      {pages.map((p) => {
-        const err = p.scanError as ScanError;
-        return (
-          <button
-            key={p.url}
-            type="button"
-            onClick={() => onOpenPage(p.url)}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              textAlign: "left",
-              padding: 14,
-              background: "var(--surface-elevated)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: "2px 8px",
-                  borderRadius: 100,
-                  color: "#fff",
-                  background: SCAN_ERROR_COLOR[err.kind],
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {SCAN_ERROR_LABEL[err.kind]}
-                {err.status ? ` ${err.status}` : ""}
-              </span>
-              <span style={{ fontSize: 13, color: "var(--text-default)", wordBreak: "break-all" }}>{p.url}</span>
-            </div>
-            <span style={{ fontSize: 13, color: "var(--text-subtle)" }}>{err.message}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 /* ---------- Árvore de estrutura de headings (h1–h6) ---------- */
 const HEADING_LEVEL_COLOR: Record<number, string> = {

@@ -48,3 +48,47 @@ mantém as **top 8**.
 - Timeout (`AbortError`) tenta de novo, dentro do limite de tentativas.
 - Se todas as tentativas falharem, retorna `score: null`, métricas e
   oportunidades vazias, e uma mensagem de erro amigável.
+
+## Tempo real de carregamento (complementar, não substitui a nota acima)
+
+Fonte: [`src/lib/realload.ts`](../../src/lib/realload.ts). Rota:
+`POST /api/realload`, mesmo formato de `{ url, strategy }`.
+
+**Por quê existe**: a nota do Lighthouse acima é *lab data* — testada contra
+um perfil de dispositivo e rede padronizados, propositalmente mais lentos que
+o comum, para representar um "pior caso" consistente entre execuções. Isso
+significa que a nota **não é** "quanto tempo essa página demora a abrir
+agora" — um site com nota 70 pode carregar em menos de 1s na prática, e o
+inverso também acontece. Os dois números são mostrados lado a lado
+(nunca combinados numa única métrica), para não sugerir que um substitui o
+outro.
+
+Como funciona:
+1. Abre a página via Puppeteer, **sem nenhum throttling de rede ou CPU** —
+   só a viewport muda entre `desktop` (1366×768) e `mobile` (390×844,
+   `deviceScaleFactor: 3`, `isMobile`/`hasTouch: true`). A medição usa a
+   conexão de internet real do servidor que roda a auditoria (não a do
+   visitante final — ver limitação abaixo).
+2. Espera o evento `load` do navegador (`waitUntil: "load"`), depois aguarda
+   até 2s pelas entradas de Paint Timing aparecerem (`first-paint`/
+   `first-contentful-paint`), sem travar a medição caso elas nunca surjam.
+3. Lê os tempos via `PerformanceNavigationTiming` e `PerformancePaintTiming`
+   do próprio navegador (não são estimados/simulados):
+   - `ttfbMs` — tempo até o primeiro byte da resposta (`responseStart`);
+   - `domContentLoadedMs` — DOM pronto e parseado;
+   - `loadMs` — todos os recursos da página carregados (métrica principal
+     exibida como "Tempo real agora" na Visão geral);
+   - `firstPaintMs` / `firstContentfulPaintMs` — quando disponíveis.
+
+**Limitação importante**: como a medição roda a partir do servidor da
+auditoria (não do dispositivo/rede do visitante real), ela reflete a conexão
+e localização geográfica do servidor, não a de quem acessa o site — é "tempo
+real" no sentido de "sem simulação artificial", não "a experiência exata de
+qualquer usuário, em qualquer lugar do mundo".
+
+**Acessibilidade do relatório**: o botão que abre o modal de desempenho
+("Ver relatório"/"Ver tempo real") fica disponível se **qualquer um dos
+dois** — a nota do Lighthouse OU o tempo real — tiver dado disponível. Isso
+importa porque a API do PageSpeed falha com frequência (rate limit externo),
+e sem essa checagem o usuário ficaria sem acesso ao tempo real justamente
+quando o Lighthouse falha.
