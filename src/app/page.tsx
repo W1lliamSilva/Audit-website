@@ -446,7 +446,8 @@ export default function Home() {
           </div>
         ) : (
           <div style={{ padding: 40, display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Barra de auditoria (sempre visível) */}
+            {/* Barra de nova auditoria (no topo apenas quando já há resultado) */}
+            {hasResult && (
             <form onSubmit={runAudit} style={{ display: "flex", gap: 10, maxWidth: 520 }}>
               <input
                 type="text"
@@ -486,10 +487,19 @@ export default function Home() {
                 {loading ? "Auditando…" : "Auditar"}
               </button>
             </form>
-            {error && <div style={{ color: "#dc2626", fontSize: 14 }}>⚠️ {error}</div>}
+            )}
+            {hasResult && error && <div style={{ color: "#dc2626", fontSize: 14 }}>⚠️ {error}</div>}
 
             {!hasResult ? (
-              <AuditEmptyState loading={loading} label={activeItem.label} view={activeItem.view} />
+              <AuditEmptyState
+                url={url}
+                setUrl={setUrl}
+                loading={loading}
+                error={error}
+                onSubmit={runAudit}
+                label={activeItem.label}
+                view={activeItem.view}
+              />
             ) : (
               activeItem.view === "overview" ? (
                 <Overview
@@ -578,7 +588,23 @@ export default function Home() {
 }
 
 /* ---------- Estado vazio (antes de auditar) ---------- */
-function AuditEmptyState({ loading, label, view }: { loading: boolean; label: string; view: string }) {
+function AuditEmptyState({
+  url,
+  setUrl,
+  loading,
+  error,
+  onSubmit,
+  label,
+  view,
+}: {
+  url: string;
+  setUrl: (v: string) => void;
+  loading: boolean;
+  error: string | null;
+  onSubmit: (e: React.FormEvent) => void;
+  label: string;
+  view: string;
+}) {
   if (loading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "80px 24px" }}>
@@ -588,16 +614,54 @@ function AuditEmptyState({ loading, label, view }: { loading: boolean; label: st
     );
   }
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "72px 24px", textAlign: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "72px 24px", textAlign: "center" }}>
       <Image className="brand-icon" src="/figma/search.svg" alt="" width={56} height={56} style={{ width: 56, height: 56 }} priority />
       <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
         Site Audit Tool
       </h2>
       <p style={{ fontSize: 14, color: "var(--text-subtle)", maxWidth: 420, margin: 0 }}>
         {view === "overview"
-          ? "Cole a URL de uma página acima e clique em Auditar para checar SEO, acessibilidade, imagens sem alt text e links quebrados."
-          : `Faça uma auditoria acima para ver “${label}”. Ou use “Compressão de imagens” na barra lateral, que funciona sem auditar.`}
+          ? "Cole a URL de uma página e clique em Auditar para checar SEO, acessibilidade, imagens sem alt text e links quebrados."
+          : `Faça uma auditoria para ver “${label}”. Ou use “Compressão de imagens” na barra lateral, que funciona sem auditar.`}
       </p>
+
+      {/* Barra de auditoria — centralizada logo abaixo do texto */}
+      <form onSubmit={onSubmit} style={{ display: "flex", gap: 10, width: "100%", maxWidth: 420, marginTop: 4 }}>
+        <input
+          type="text"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="Link do site"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: "var(--bg-lighter)",
+            color: "var(--text-default)",
+            border: "1px solid var(--stroke-light)",
+            borderRadius: 4,
+            padding: "8px 12px",
+            fontSize: 14,
+            outline: "none",
+          }}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            background: loading ? "#9d7a2e" : "var(--bg-darker)",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            padding: "8px 20px",
+            fontSize: 14,
+            cursor: loading ? "default" : "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {loading ? "Auditando…" : "Auditar"}
+        </button>
+      </form>
+      {error && <div style={{ color: "#dc2626", fontSize: 14 }}>⚠️ {error}</div>}
     </div>
   );
 }
