@@ -19,7 +19,7 @@
   --bg-light: #ecebe6; /* sidebar */
   --bg-lighter: #fbfbf9; /* inputs */
   --bg-dark: #001a16; /* nav ativo (verde da marca) */
-  --bg-darker: #b7903b; /* botão primário (action/primary — dourado) */
+  --bg-darker: #816323; /* botão primário — Gold 700 (texto branco passa no WCAG AA) */
   --text-default: #131311; /* text/primary */
   --text-subtle: #6b6f6c;
   --stroke-light: #d8d6d0;
@@ -29,7 +29,7 @@
   --radius-xl: 12px;
 
   /* Botões (Design System — 08/ Actions) */
-  --action-primary: #b7903b;
+  --action-primary: #816323;
   --action-primary-hover: #cda748;
   --action-secondary: #9d7a2e;
   --action-emphasis: #003e33; /* variante "accent" (verde) */
@@ -62,7 +62,7 @@
   --bg-light: #002b23; /* sidebar (surface/inverse-soft) */
   --bg-lighter: #0a2620; /* inputs */
   --bg-dark: #b7903b;
-  --bg-darker: #b7903b; /* botão primário (dourado) */
+  --bg-darker: #816323; /* botão primário — Gold 700 (contraste AA com texto branco) */
   --text-default: #fffdfc;
   --text-subtle: #9fb4ad;
   --text-muted: rgba(255, 253, 252, 0.72);
