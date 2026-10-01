@@ -20,12 +20,14 @@ export interface ImageIssue {
   weightError?: string;
   selector: string;
   location: string;
+  page: string; // URL da página onde a imagem foi encontrada
 }
 
 export interface ImagesResult {
   total: number;
   withoutAlt: ImageIssue[];
-  pageUrl: string; // página auditada onde as imagens estão
+  pageUrl: string; // primeira página (auditada)
+  pages: string[]; // páginas efetivamente varridas
   error?: string;
 }
 
@@ -58,40 +60,78 @@ async function resolveLaunchOptions() {
   return { args: ["--no-sandbox", "--disable-setuid-sandbox"], executablePath: local ?? undefined, headless: true as const };
 }
 
-export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult> {
-  const url = normalizeUrl(rawUrl);
-  const opts = await resolveLaunchOptions();
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      args: opts.args,
-      executablePath: opts.executablePath,
-      headless: opts.headless,
-      defaultViewport: { width: 1280, height: 900, deviceScaleFactor: 1 },
-    });
-    const page = await browser.newPage();
-    await page.setUserAgent(USER_AGENT);
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
-    // Rola a página para disparar lazy-loading de imagens.
-    await page.evaluate(async () => {
-      await new Promise<void>((resolve) => {
-        let y = 0;
-        const step = () => {
-          window.scrollBy(0, 800);
-          y += 800;
-          if (y >= document.body.scrollHeight || y > 20000) {
-            window.scrollTo(0, 0);
-            resolve();
-          } else {
-            setTimeout(step, 100);
-          }
-        };
-        step();
-      });
-    });
-    await new Promise((r) => setTimeout(r, 400));
+const MAX_PAGES = 6;
+const OVERALL_BUDGET_MS = 150000;
+const MAX_IMAGES = 120;
 
-    const data = await page.evaluate(() => {
+/** Descobre páginas do site via sitemap.xml (com índice) e, em fallback, pelos
+ *  links internos da home. Leve (fetch, sem navegador). */
+async function discoverPages(base: URL): Promise<string[]> {
+  const headers = { "user-agent": USER_AGENT, accept: "application/xml,text/xml,text/html" };
+  async function fetchText(u: string): Promise<string | null> {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 10000);
+      const r = await fetch(u, { headers, signal: c.signal, redirect: "follow" });
+      clearTimeout(t);
+      return r.ok ? await r.text() : null;
+    } catch {
+      return null;
+    }
+  }
+  const home = base.toString();
+  for (const sm of [new URL("/sitemap.xml", base).toString(), new URL("/sitemap_index.xml", base).toString()]) {
+    const xml = await fetchText(sm);
+    if (!xml) continue;
+    const childs = [...xml.matchAll(/<sitemap>[\s\S]*?<loc>([^<]+)<\/loc>[\s\S]*?<\/sitemap>/g)].map((m) => m[1].trim());
+    let locs: string[] = [];
+    if (childs.length) {
+      const cx = await fetchText(childs[0]);
+      if (cx) locs = [...cx.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim());
+    }
+    if (!locs.length) locs = [...xml.matchAll(/<url>[\s\S]*?<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim());
+    if (locs.length) return locs.filter((u) => { try { return new URL(u).host === base.host; } catch { return false; } });
+  }
+  const html = await fetchText(home);
+  if (html) {
+    const set = new Set<string>([home]);
+    for (const m of html.matchAll(/href=["']([^"'#]+)["']/g)) {
+      try {
+        const u = new URL(m[1], base);
+        if (u.host === base.host && /^https?:/.test(u.protocol)) {
+          u.hash = "";
+          set.add(u.toString());
+        }
+      } catch {}
+    }
+    return [...set];
+  }
+  return [home];
+}
+
+type PuppeteerPage = Awaited<ReturnType<Awaited<ReturnType<typeof puppeteer.launch>>["newPage"]>>;
+
+/** Rola a página (lazy-load) e coleta todas as <img> do DOM renderizado. */
+async function scanImagesOnPage(page: PuppeteerPage) {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      let y = 0;
+      const step = () => {
+        window.scrollBy(0, 800);
+        y += 800;
+        if (y >= document.body.scrollHeight || y > 20000) {
+          window.scrollTo(0, 0);
+          resolve();
+        } else {
+          setTimeout(step, 100);
+        }
+      };
+      step();
+    });
+  });
+  await new Promise((r) => setTimeout(r, 400));
+
+  return page.evaluate(() => {
       const LANDMARKS = ["header", "nav", "main", "footer", "aside", "form", "section", "article"];
       function elSelector(el: Element): string {
         const tag = el.tagName.toLowerCase();
@@ -167,13 +207,74 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
       }));
       return { total: all.length, all };
     });
+}
 
-    const pageUrl = page.url() || url;
-    const withoutAltRaw = data.all.filter(
-      (im) => (im.alt === null || im.alt.trim() === "") && im.src && !im.src.startsWith("data:")
-    );
-    const withoutAlt = await addSizes(withoutAltRaw, pageUrl);
-    return { total: data.total, withoutAlt, pageUrl };
+export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult> {
+  const url = normalizeUrl(rawUrl);
+  let base: URL;
+  try {
+    base = new URL(url);
+  } catch {
+    return { total: 0, withoutAlt: [], pageUrl: url, pages: [], error: "URL inválida." };
+  }
+  const started = Date.now();
+  const opts = await resolveLaunchOptions();
+  let browser;
+  try {
+    // Descobre páginas do site (a auditada vem primeiro), limitado a MAX_PAGES.
+    const discovered = await discoverPages(base);
+    const ordered = [url, ...discovered.filter((u) => u !== url)].slice(0, MAX_PAGES);
+
+    browser = await puppeteer.launch({
+      args: opts.args,
+      executablePath: opts.executablePath,
+      headless: opts.headless,
+      defaultViewport: { width: 1280, height: 900, deviceScaleFactor: 1 },
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent(USER_AGENT);
+
+    let total = 0;
+    const scannedPages: string[] = [];
+    const rawAll: Omit<ImageIssue, "bytes">[] = [];
+    const seen = new Set<string>(); // dedupe por src (fica na 1ª página em que aparece)
+
+    for (const pUrl of ordered) {
+      if (Date.now() - started > OVERALL_BUDGET_MS || rawAll.length >= MAX_IMAGES) break;
+      try {
+        await page.goto(pUrl, { waitUntil: "networkidle2", timeout: 30000 });
+      } catch {
+        continue; // página que não carregou: pula
+      }
+      const finalP = page.url() || pUrl;
+      let scan;
+      try {
+        scan = await scanImagesOnPage(page);
+      } catch {
+        continue;
+      }
+      scannedPages.push(finalP);
+      total += scan.total;
+      for (const im of scan.all) {
+        if ((im.alt === null || im.alt.trim() === "") && im.src && !im.src.startsWith("data:")) {
+          if (seen.has(im.src)) continue;
+          seen.add(im.src);
+          rawAll.push({
+            src: im.src,
+            alt: im.alt,
+            width: im.width,
+            height: im.height,
+            selector: im.selector,
+            location: im.location,
+            page: finalP,
+          });
+          if (rawAll.length >= MAX_IMAGES) break;
+        }
+      }
+    }
+
+    const withoutAlt = await addSizes(rawAll);
+    return { total, withoutAlt, pageUrl: scannedPages[0] || url, pages: scannedPages };
   } catch (err) {
     const error =
       err instanceof Error
@@ -181,7 +282,7 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
           ? "A página demorou demais para carregar (timeout)."
           : `Falha ao analisar as imagens: ${err.message}`
         : "Falha ao analisar as imagens da página.";
-    return { total: 0, withoutAlt: [], pageUrl: url, error };
+    return { total: 0, withoutAlt: [], pageUrl: url, pages: [], error };
   } finally {
     if (browser) await browser.close();
   }
@@ -204,12 +305,13 @@ export async function getImagesWithoutAlt(rawUrl: string): Promise<ImagesResult>
  * bloqueiam requisições sem esses headers.
  */
 async function addSizes(
-  imgs: Omit<ImageIssue, "bytes">[],
-  pageUrl: string
+  imgs: Omit<ImageIssue, "bytes">[]
 ): Promise<ImageIssue[]> {
   const CONCURRENCY = 6;
   const TIMEOUT_MS = 12000;
-  const headers = { "user-agent": USER_AGENT, referer: pageUrl, accept: "image/*,*/*;q=0.8" };
+  // Referer = a página onde a imagem apareceu (anti-hotlink de CDNs). Definido
+  // por imagem no worker; este é só o fallback de accept/user-agent.
+  const baseHeaders = { "user-agent": USER_AGENT, accept: "image/*,*/*;q=0.8" };
   const result: ImageIssue[] = imgs.map((im) => ({ ...im, bytes: null }));
   const queue = result.map((_, i) => i);
 
@@ -243,6 +345,7 @@ async function addSizes(
       const i = queue.shift();
       if (i === undefined) break;
       const src = result[i].src;
+      const headers = { ...baseHeaders, referer: result[i].page || src };
       // Motivo de por que o peso não foi obtido — só vira `weightError` no
       // final se `bytes` continuar null (uma tentativa seguinte que dá certo
       // sempre limpa o motivo de uma tentativa anterior que falhou).
