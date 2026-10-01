@@ -333,6 +333,7 @@ export default function Home() {
         boxSizing: "border-box",
       }}
     >
+      <a href="#main-content" className="skip-link">Pular para o conteúdo</a>
       {/* Sidebar */}
       <aside
         style={{
@@ -370,7 +371,7 @@ export default function Home() {
           <ThemeToggle theme={theme} onChange={applyTheme} />
         </div>
 
-        <nav style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+        <nav aria-label="Navegação principal" style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
           {NAV_ITEMS.map((item) => {
             const isActive = active === item.label;
             const NavIcon = item.icon;
@@ -378,6 +379,7 @@ export default function Home() {
               <button
                 key={item.label}
                 type="button"
+                aria-current={isActive ? "page" : undefined}
                 onClick={() => {
                   setActive(item.label);
                   if (item.view === "seo" && auditedUrl && !seo && !seoLoading) {
@@ -435,7 +437,7 @@ export default function Home() {
       </aside>
 
       {/* Área principal */}
-      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <main id="main-content" aria-label="Resultado da auditoria" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {activeItem.view === "compressor" ? (
           <div style={{ padding: 40 }}>
             <CompressorView />
@@ -453,7 +455,7 @@ export default function Home() {
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="Link do site"
+                placeholder="Link do site" aria-label="URL do site para auditar"
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -616,9 +618,9 @@ function AuditEmptyState({
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "72px 24px", textAlign: "center" }}>
       <Image className="brand-icon" src="/figma/search.svg" alt="" width={56} height={56} style={{ width: 56, height: 56 }} priority />
-      <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
+      <h1 style={{ fontFamily: "var(--font-heading)", fontWeight: 500, fontSize: 24, color: "var(--text-default)", margin: 0 }}>
         Site Audit Tool
-      </h2>
+      </h1>
       <p style={{ fontSize: 14, color: "var(--text-subtle)", maxWidth: 420, margin: 0 }}>
         {view === "overview"
           ? "Cole a URL de uma página e clique em Auditar para checar SEO, acessibilidade, imagens sem alt text e links quebrados."
@@ -631,7 +633,7 @@ function AuditEmptyState({
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="Link do site"
+          placeholder="Link do site" aria-label="URL do site para auditar"
           style={{
             flex: 1,
             minWidth: 0,
@@ -694,7 +696,13 @@ function Gauge({
   }
 
   const svg = (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      role="img"
+      aria-label={score === null ? "Nota de desempenho indisponível" : `Nota de desempenho: ${value} de 100`}
+    >
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--stroke-light)" strokeWidth={stroke} />
       {score !== null && (
         <circle
@@ -2665,7 +2673,7 @@ function InspectView() {
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="Link do site"
+          placeholder="Link do site" aria-label="URL do site para auditar"
           style={{ flex: 1, minWidth: 0, background: "var(--bg-lighter)", color: "var(--text-default)", border: "1px solid var(--stroke-light)", borderRadius: 4, padding: "8px 12px", fontSize: 14, outline: "none" }}
         />
         <button type="submit" disabled={loading} style={{ background: loading ? "#9d7a2e" : "var(--bg-darker)", color: "#fff", border: "none", borderRadius: 4, padding: "8px 20px", fontSize: 14, cursor: loading ? "default" : "pointer", whiteSpace: "nowrap" }}>

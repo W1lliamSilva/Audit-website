@@ -97,3 +97,43 @@ body {
 [data-theme="dark"] .brand-icon {
   filter: brightness(0) invert(1);
 }
+
+/* ===== Acessibilidade ===== */
+
+/* Foco visível por teclado (não aparece em clique de mouse) */
+:focus-visible {
+  outline: 2px solid var(--support-teal-base);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Conteúdo só para leitores de tela */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Link "pular para o conteúdo" — visível ao receber foco */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 100;
+  background: var(--bg-darker);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 8px;
+}
