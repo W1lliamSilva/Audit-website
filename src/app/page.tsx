@@ -233,7 +233,7 @@ export default function Home() {
       const data: ImagesResult = await res.json();
       setImages(data);
     } catch {
-      setImages({ total: 0, withoutAlt: [], pageUrl: u, error: "Falha ao analisar as imagens." });
+      setImages({ total: 0, withoutAlt: [], pageUrl: u, pages: [], error: "Falha ao analisar as imagens." });
     } finally {
       setImagesLoading(false);
     }
@@ -889,7 +889,7 @@ function Overview({
         ) : imgsWithoutAlt.length === 0 ? (
           <Empty text={images ? "Todas as imagens têm alt text 🎉" : "—"} />
         ) : (
-          imgsWithoutAlt.slice(0, 2).map((im, i) => <ImageCard key={i} image={im} pageUrl={images?.pageUrl ?? auditedUrl} />)
+          imgsWithoutAlt.slice(0, 2).map((im, i) => <ImageCard key={i} image={im} pageUrl={im.page || images?.pageUrl || auditedUrl} />)
         )}
       </Section>
     </div>
@@ -1586,7 +1586,8 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
       ) : (
         <>
           <p style={{ fontSize: 14, color: "var(--text-subtle)", margin: 0 }}>
-            {imgs.length} de {images.total} imagens sem alt text.
+            {imgs.length} de {images.total} imagens sem alt text
+            {images.pages && images.pages.length > 1 ? ` · ${images.pages.length} páginas varridas` : ""}.
           </p>
 
           {/* Barra de compressão em lote */}
@@ -1644,7 +1645,7 @@ function ImagesView({ images, loading }: { images: ImagesResult | null; loading:
             <ImageCard
               key={i}
               image={im}
-              pageUrl={images.pageUrl}
+              pageUrl={im.page || images.pageUrl}
               comp={results[i] ?? null}
               compLoading={loadingSet.has(i)}
               onCompress={() => compressOne(i, im.src, quality)}

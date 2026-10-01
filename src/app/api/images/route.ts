@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getImagesWithoutAlt } from "@/lib/images";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Multi-página (renderiza até 6 páginas com o Chromium) — precisa de folga.
+export const maxDuration = 180;
 
 export async function POST(req: NextRequest) {
   let body: { url?: string };
