@@ -69,7 +69,7 @@ export async function getPerformance(
   // a 2ª chamada normalmente pega o resultado em cache do Google e é rápida.
   // Por isso tentamos até 2 vezes, cada uma com timeout curto.
   const ATTEMPTS = 2;
-  const PER_ATTEMPT_MS = 28000;
+  const PER_ATTEMPT_MS = 45000; // 1ª análise do Lighthouse em sites pesados passa de 28s
   let lastError = "Falha ao consultar o PageSpeed.";
 
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {

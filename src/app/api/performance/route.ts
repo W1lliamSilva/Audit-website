@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPerformance, type Strategy } from "@/lib/performance";
 
-// A análise Lighthouse do PageSpeed pode levar bastante tempo.
-export const maxDuration = 60;
+// A análise Lighthouse do PageSpeed pode levar bastante tempo (1ª análise ao
+// vivo em sites pesados). Folga para até 2 tentativas de 45s.
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   let body: { url?: string; strategy?: Strategy };
