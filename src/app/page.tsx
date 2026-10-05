@@ -11,6 +11,8 @@ import {
   ArrowsInSimple,
   Eyedropper,
   Gauge as GaugeIcon,
+  BookmarkSimple,
+  ArrowSquareOut,
 } from "@phosphor-icons/react/dist/ssr";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { Atom } from "loading-dev";
@@ -431,6 +433,40 @@ export default function Home() {
               </button>
             );
           })}
+
+          {/* Link externo — referências de sites (abre em nova aba) */}
+          <a
+            href="https://favoritos-gustavo-silva.vercel.app/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              width: "100%",
+              textAlign: "left",
+              textDecoration: "none",
+              padding: 16,
+              borderRadius: "var(--radius-xl)",
+              background: "var(--nav-hover)",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+            }}
+          >
+            <BookmarkSimple
+              size={20}
+              weight="regular"
+              color="var(--text-subtle)"
+              style={{ flexShrink: 0, marginTop: 1 }}
+            />
+            <span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
+              <span style={{ fontSize: 14, lineHeight: "22px", color: "var(--text-default)", display: "flex", alignItems: "center", gap: 6 }}>
+                Referências de sites
+                <ArrowSquareOut size={14} weight="regular" color="var(--text-subtle)" style={{ flexShrink: 0 }} />
+              </span>
+              <span style={{ fontSize: 12, lineHeight: "16px", color: "var(--text-subtle)" }}>
+                site externo
+              </span>
+            </span>
+          </a>
         </nav>
       </aside>
 
